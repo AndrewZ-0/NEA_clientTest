@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+
+<html lang = "en">
+
+    <head>
+        <meta name = "viewport" content = "width = device-width, initial-scale = 1.0">
+
+        <link rel = "stylesheet" href = "./styles/projectDashboard.css">
+        <link rel = "stylesheet" href = "./styles/master.css">
+        <link rel = "stylesheet" href = "./styles/forms.css">
+        <script src = "js/projectDashboard.js" type = "module"></script>
+        <title>Projects Dashboard</title>
+    </head>
+
+    <body>
+        <div id = "titlebar">
+            <button id = "titleBarButton">〱</button>
+            <label class = "miniTitleLabel">Projects Dashboard</label>
+        </div>
+
+        <div id = "mainScreen">
+            <div id = "projectCardsContainer">
+                <!--project cards will be dynamically loaded here-->
+
+                <div class = "new-project-card" tabindex = "0">
+                    <div class = "new-project-icon">+</div>
+                    <label>New Project</label>
+                </div>
+            </div>
+
+            <div id = "projectEdits" style = "height: 50px; width: 100%; justify-content: right;">
+                <button id = "renameProject" style = "width: 35px; height: 35px; font-family: Arial; text-decoration: underline; font-size: 25px; background-color: #f9f9f9;" disabled>🖊️</button>
+                <button id = "deleteProject" style = "width: 35px; height: 35px; font-family: Arial; font-size: 25px; background-color: #f9f9f9;" disabled>🗑</button>
+            </div>
+        </div>
+
+        <div id = "new-project-overlay" class = "hidden">
+            <div>
+                <button id = "hide-new-project-overlay-button">ㄨ</button>
+                <div class = "overlay-content">
+                    <h2>Create New Project</h2>
+
+                    <div class = "form-container">
+                        <form onsubmit = "return false;">
+                            <div class = "input-group" style = "margin-bottom: 20px;">
+                                <label for = "project-name" style = "width: 120px;">Project Name</label>
+                                <input type = "text" id = "project-name" name = "project-name" placeholder = "Project Name" required>
+                            </div>
+
+                            <div id = "new-project-error-message" class = "error-message"></div>
+
+                            <button id = "create-new-project-button">Create</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id = "rename-project-overlay" class = "hidden">
+            <div>
+                <button id = "hide-rename-project-overlay-button">ㄨ</button>
+                <div class = "overlay-content">
+                    <h2>Rename Project</h2>
+
+                    <div class = "form-container">
+                        <form onsubmit = "return false;">
+                            <div class = "input-group" style = "margin-bottom: 20px;">
+                                <label for = "new-project-name" style = "width: 120px;">New Project Name</label>
+                                <input type = "text" id = "new-project-name" name = "new-project-name" placeholder = "New Project Name" required>
+                            </div>
+
+                            <div id = "rename-project-error-message" class = "error-message"></div>
+
+                            <button id = "rename-project-button">Rename</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+
+</html>
+
+
+
+<!--
+<div class = "project-card" tabindex = "0">
+    <img src = "./assets/project2.png" alt = "Project Icon">
+    <div class = "project-details">
+        <label>UnnamedProject</label>
+        <label>Last opened 01:40:02 29/8/24</label>
+    </div>
+</div>
+
+-->
