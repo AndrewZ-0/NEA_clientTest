@@ -1,6 +1,6 @@
 class Communicator {
     constructor() {
-        this.ip = "http://172.16.8.204:1234";
+        this.ip = "https://127.0.0.1:1234";
     }
 
     async connect() {
