@@ -12,19 +12,40 @@ async function logout(event) {
 
 document.getElementById("titleBarButton").addEventListener("pointerdown", logout);
 
+function createNewProjectScreenKeyEvents(event) {
+    if (event.key === "Escape") {
+        hideNewProjectOverlay();
+    } 
+    else if (event.key === "Enter") {
+        createNewProject();
+    }
+}
+
+function renameProjectScreenKeyEvents(event) {
+    if (event.key === "Escape") {
+        hideRenameProjectOverlay();
+    } 
+    else if (event.key === "Enter") {
+        renameProject();
+    }
+}
+
 function showNewProjectOverlay(event) {
-    console.log("Opening new project overlay");
     document.getElementById("new-project-overlay").classList.remove("hidden");
+    document.removeEventListener("keydown", dashboardKeyEvents);
+    document.addEventListener("keydown", createNewProjectScreenKeyEvents);
 }
 
 function hideNewProjectOverlay(event) {
     document.getElementById("new-project-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", createNewProjectScreenKeyEvents);
+    document.addEventListener("keydown", dashboardKeyEvents);
 }
 
 document.getElementById("hide-new-project-overlay-button").addEventListener("pointerdown", hideNewProjectOverlay);
 
 async function createNewProject(event) {
-    event.preventDefault();  //stop default js form features
+    event?.preventDefault();  //stop default js form features
 
     const projectName = document.getElementById("project-name").value.trim();
     const certificate = sessionStorage.getItem("certificate");
@@ -48,8 +69,8 @@ async function createNewProject(event) {
 
     //alert("New Project Created!"); //kinda don't need this
     hideNewProjectOverlay();
-    loadProjects(); //reload all project cards to include the new ones
-    //note to self: by this point, open the project
+    //loadProjectCards(); //reload all project cards to include the new ones
+    openProjectWorkbench(projectName);
 }
 
 document.getElementById("create-new-project-button").addEventListener("pointerdown", createNewProject);
@@ -69,7 +90,7 @@ async function deleteProject(event) {
         }
 
         //alert("Project deleted!");
-        loadProjects();
+        loadProjectCards();
         document.getElementById("renameProject").disabled = true;
         document.getElementById("deleteProject").disabled = true;
     }
@@ -78,18 +99,21 @@ async function deleteProject(event) {
 document.getElementById("deleteProject").addEventListener("pointerdown", deleteProject);
 
 function showRenameProjectOverlay(event) {
-    console.log("Opening rename project overlay");
     document.getElementById("rename-project-overlay").classList.remove("hidden");
+    document.removeEventListener("keydown", dashboardKeyEvents);
+    document.addEventListener("keydown", renameProjectScreenKeyEvents);
 }
 
 function hideRenameProjectOverlay(event) {
     document.getElementById("rename-project-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", renameProjectScreenKeyEvents);
+    document.addEventListener("keydown", dashboardKeyEvents);
 }
 
 document.getElementById("hide-rename-project-overlay-button").addEventListener("pointerdown", hideRenameProjectOverlay);
 
 async function renameProject(event) {
-    event.preventDefault();  //stop default js form features
+    event?.preventDefault();  //stop default js form features
 
     const newProjectName = document.getElementById("new-project-name").value.trim();
     const certificate = sessionStorage.getItem("certificate");
@@ -111,16 +135,23 @@ async function renameProject(event) {
         return;
     }
 
-    alert("Project Renamed!");
+    //alert("Project Renamed!");
     hideRenameProjectOverlay();
-    loadProjects(); //reload all project cards to include the renamed ones
+    loadProjectCards(); //reload all project cards to include the renamed ones
 }
 
 document.getElementById("rename-project-button").addEventListener("pointerdown", renameProject);
 
 document.getElementById("renameProject").addEventListener("pointerdown", showRenameProjectOverlay);
 
-function handleKeyPresses(event) {
+function dashboardKeyEvents(event) {
+    const newProjectOverlayVisible = !document.getElementById("new-project-overlay").classList.contains("hidden");
+    const renameProjectOverlayVisible = !document.getElementById("rename-project-overlay").classList.contains("hidden");
+
+    if (newProjectOverlayVisible || renameProjectOverlayVisible) {
+        return; 
+    }
+
     let options = Array.prototype.slice.call(document.querySelectorAll(".project-card, .new-project-card"));
     let index = options.indexOf(focusedCard);
 
@@ -150,7 +181,8 @@ function handleKeyPresses(event) {
     } 
     else if (event.key === "Enter" && focusedCard) {
         if (focusedCard.classList.contains("project-card")) {
-            console.log("Open project");
+            const projectName = focusedCard.querySelector(".project-name").textContent;
+            openProjectWorkbench(projectName);
         } 
         else if (focusedCard.classList.contains("new-project-card")) {
             showNewProjectOverlay();
@@ -160,7 +192,7 @@ function handleKeyPresses(event) {
 
 let focusedCard = null;
 
-document.addEventListener("keydown", handleKeyPresses);
+document.addEventListener("keydown", dashboardKeyEvents);
 
 
 //combined for new project and project cards since both share the same selection system
@@ -173,7 +205,8 @@ function handleSelectProjectCard(event) {
         }
 
         if (target.classList.contains("project-card") && target === focusedCard) {
-            console.log("Open project");
+            const projectName = target.querySelector(".project-name").textContent;
+            openProjectWorkbench(projectName);
         } 
         else if (target.classList.contains("new-project-card") && target === focusedCard) {
             showNewProjectOverlay();
@@ -182,13 +215,22 @@ function handleSelectProjectCard(event) {
         target.classList.add("focus");
         focusedCard = target;
 
-        document.getElementById("renameProject").disabled = false;
-        document.getElementById("deleteProject").disabled = false;
+        if (target.classList.contains("project-card")) {
+            document.getElementById("renameProject").disabled = false;
+            document.getElementById("deleteProject").disabled = false;
+        } 
+        else {
+            document.getElementById("renameProject").disabled = true;
+            document.getElementById("deleteProject").disabled = true;
+        }
     }
 }
 
+function openProjectWorkbench(projectName) {
+    window.location.href = `projectWorkbench.html?projectName=${projectName}`;
+}
 
-async function loadProjects() {
+async function loadProjectCards() {
     const certificate = sessionStorage.getItem("certificate");
     if (!certificate) {
         console.log("No certificate found");
@@ -264,16 +306,18 @@ async function loadProjects() {
     projectCardsContainer.appendChild(newProjectCard);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-    const newProjectCards = document.querySelectorAll(".new-project-card");
+
+
+const newProjectCards = document.querySelectorAll(".new-project-card");
     
-    for (const newProjectCard of newProjectCards) {
-        newProjectCard.addEventListener("pointerdown", handleSelectProjectCard)
-    }
+for (const newProjectCard of newProjectCards) {
+    newProjectCard.addEventListener("pointerdown", handleSelectProjectCard)
+}
 
-    loadProjects();
+loadProjectCards();
 
-    //if focus is on when reloading, ensure buttons are kept disabled
-    document.getElementById("renameProject").disabled = true;
-    document.getElementById("deleteProject").disabled = true;
-});
+//if focus is on when reloading, ensure buttons are kept disabled
+document.getElementById("renameProject").disabled = true;
+document.getElementById("deleteProject").disabled = true;
+
+document.addEventListener("keydown", dashboardKeyEvents);

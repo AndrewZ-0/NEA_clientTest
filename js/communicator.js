@@ -105,12 +105,32 @@ class Communicator {
     }
 
     async listProjects(certificate) {
-        return await communicator.fetchData("listProjects", {"certificate": certificate});
+        return await this.fetchData("listProjects", {"certificate": certificate});
     }
 
     async getProjectData(certificate, projectName) {
-        return await communicator.fetchData(
+        return await this.fetchData(
             "get_projectData", 
+            {
+                "certificate": certificate, 
+                "projectName": projectName
+            }
+        );
+    }
+
+    async getSimConfig(certificate, projectName) {
+        return await this.fetchData(
+            "get_simConfig", 
+            {
+                "certificate": certificate, 
+                "projectName": projectName
+            }
+        );
+    }
+
+    async getSettings(certificate, projectName) {
+        return await this.fetchData(
+            "get_settings", 
             {
                 "certificate": certificate, 
                 "projectName": projectName
