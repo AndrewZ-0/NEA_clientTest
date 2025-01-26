@@ -37,7 +37,7 @@ class Camera {
 }
 
 
-class CartesianCamera extends Camera {
+class QuaternionCamera extends Camera {
     constructor(init_coords, init_orientation) {
         super();
 
@@ -146,6 +146,44 @@ class CartesianCamera extends Camera {
 
     getOrientationViewMatrix(viewMatrix) {
         linearAlgebra.lookAt(viewMatrix, linearAlgebra.globalOrigin, camera.front, camera.up);
+    }
+}
+
+class CartesianCamera extends QuaternionCamera {
+    constructor(init_coords, init_orientation) {
+        super(init_coords, init_orientation);
+    }
+
+    updateDirectionVects() {
+        super.updateDirectionVects();
+
+        this.up = {x: 0, y: 1, z: 0};
+    }
+
+    handleMovements() {
+        if (keys.w || keys.s || keys.d || keys.a || keys.space || keys.shift || keys.left || keys.right || keys.up || keys.down) {
+            linearAlgebra.scaleTranslateVec3(this.coords, linearAlgebra.crossVec3(this.up, this.right), this.cameraSpeed * clock.deltaT * (keys.w - keys.s));
+            linearAlgebra.scaleTranslateVec3(this.coords, this.right, this.cameraSpeed * clock.deltaT * (keys.d - keys.a));
+            linearAlgebra.scaleTranslateVec3(this.coords, this.up, this.cameraSpeed * clock.deltaT * (keys.space - keys.shift));
+            updateCameraCartesianCoordsOverlays();
+
+            linearAlgebra.applyQuat(
+                this.orientation, linearAlgebra.getAxisAngle(
+                    this.right, this.cameraSpeed * clock.deltaT * (keys.up - keys.down) * 0.08
+                )
+            ); //pitch
+            linearAlgebra.applyQuat(
+                this.orientation, linearAlgebra.getAxisAngle(
+                    this.up, this.cameraSpeed * clock.deltaT * (keys.left - keys.right) * 0.08
+                )
+            ); //yaw
+
+            linearAlgebra.normaliseQuat(this.orientation);
+            this.updateDirectionVects();
+            updateCameraEulerAnglesOverlays();
+
+            this.changedSinceLastFrame = true;
+        }
     }
 }
 
@@ -267,7 +305,7 @@ class PolarCamera extends Camera {
 export function toggleCameraMode() {
     //pretty sure the old camera gets garbage collected... 
     //but if there is a memory leak, now you probably know why :)
-    if (cameraMode === "Cartesian") {
+    if (cameraMode === "Quaternion") {
         cameraMode = "Y-Polar";
 
         const r = linearAlgebra.magnitudeVec3(camera.coords);
@@ -277,12 +315,20 @@ export function toggleCameraMode() {
             Math.atan2(camera.coords.x, camera.coords.z)
         );
     }
-    else {
-        cameraMode = "Cartesian";
+    else if (cameraMode === "Y-Polar") {
+        cameraMode = "Y-Cartesian";
 
         camera = new CartesianCamera(
             linearAlgebra.coordsfromPolar(camera.r, camera.alt, camera.azi), 
             linearAlgebra.quatOrientationFromPolar(camera.alt, camera.azi)
+        );
+    }
+    else {
+        cameraMode = "Quaternion";
+
+        camera = new QuaternionCamera(
+            camera.coords, 
+            camera.orientation
         );
         camera.updateAllOverlays();
     }

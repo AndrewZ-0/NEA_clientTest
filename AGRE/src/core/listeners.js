@@ -154,6 +154,10 @@ function handleMouseMove(event) {
     if (selectionMovementAxis !== null) {
         //const offset = nextMouseOffset(event);
         masterRenderer.moveSelectedObjectAlong(selectionMovementAxis, event.clientX, event.clientY);
+
+        const movedObject = masterRenderer.objects[masterRenderer.currentSelection];
+        const objMovedEvent = new CustomEvent("objectMoved", {detail: movedObject});
+        document.dispatchEvent(objMovedEvent);
     }
     else if (mouseDragging) {
         clickFlag = false; //no longer a click
@@ -181,6 +185,10 @@ function handleMouseButtonUp(event) {
             raycastMouseCollisionCheck(event.x, event.y);
             toggleSelectionMovement(null);
             updateSelectedOverlay();
+
+            const selectedObject = masterRenderer.objects[masterRenderer.currentSelection];
+            const objSelectedEvent = new CustomEvent("objectSelected", {detail: selectedObject});
+            document.dispatchEvent(objSelectedEvent);
         }
         else {
             clickFlag = true;
@@ -206,18 +214,15 @@ function bindCameraCallbacks(canvas) {
 }
 
 export function bindAllControls(canvas) {
-    document.addEventListener(
-        "keydown", function(event) {
-            handleKeyDown(event);
-        }
-    );
-    document.addEventListener(
-        "keyup", function(event) {
-            handleKeyUp(event);
-        }
-    );
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
 
     bindCameraCallbacks(canvas);
+}
+
+export function unbindAllKeyControls() {
+    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("keyup", handleKeyUp);
 }
 
 export function bindVisabilityChange(lambda) {
@@ -241,5 +246,11 @@ function toggleSelectionMovement(axis) {
         selectionMovementAxis = null;
         updateSelectionMovementOverlay(selectionMovementAxis);
         axisRenderer.updateFlag = true;
+    }
+}
+
+export function quickReleaseKeys() {
+    for (let key in keys) {
+        keys[key] = false;
     }
 }

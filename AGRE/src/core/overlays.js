@@ -26,7 +26,7 @@ export function updateShaderOverlays() {
 
 export function updateCameraModeOverlay() {
     document.getElementById("cameraMode-overlay").innerHTML = `CameraMode: ${cameraMode}`;
-    if (cameraMode === "Cartesian") {
+    if (cameraMode === "Y-Cartesian") {
         document.getElementById("r-overlay").innerHTML = "";
         document.getElementById("altitude-overlay").innerHTML = "";
         document.getElementById("azimuth-overlay").innerHTML = "";

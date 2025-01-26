@@ -18,9 +18,9 @@
 
 .form-container .input-group {
     display: flex;
-    gap: 10px;
     margin-top: 20px;
 }
+
 
 .form-container input[type = "text"],
 .form-container input[type = "password"] {
@@ -87,7 +87,6 @@
     align-items: center;
     height: 30px;
     font-size: 14px;
-    align-items: center;
 }
 
 .form-footer a {
@@ -99,3 +98,27 @@
 .form-footer a:hover {
     text-decoration: underline;
 }
+
+
+.form-container .input-subgroup {
+    display: flex;
+    gap: 5px;
+    height: 20px;
+    align-items: center;
+}
+
+.input-subgroup .numInpLabel {
+    text-align: left;
+    width: 20px; 
+    font-size: 12px; 
+    height: 16px; 
+    line-height: 20px;
+}
+
+.numInpBox {
+    width: 120px; 
+    height: 16px; 
+    padding: 0;
+}
+
+

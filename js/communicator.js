@@ -1,6 +1,6 @@
 class Communicator {
     constructor() {
-        this.ip = "https://192.168.1.39:1234";
+        this.ip = "https://127.0.0.1:1234";
     }
 
     async connect() {
@@ -109,43 +109,52 @@ class Communicator {
     }
 
     async getProjectData(certificate, projectName) {
-        return await this.fetchData(
-            "get_projectData", 
-            {
-                "certificate": certificate, 
-                "projectName": projectName
-            }
-        );
+        return await this.fetchData("get_projectData", {certificate, projectName});
+    }
+
+    async updateAccessProjectTime(certificate, projectName) {
+        return await this.submitData("update_accessProjectTime", {certificate, projectName});
     }
 
     async getSimConfig(certificate, projectName) {
-        return await this.fetchData(
-            "get_simConfig", 
-            {
-                "certificate": certificate, 
-                "projectName": projectName
-            }
-        );
+        return await this.fetchData("get_simConfig", {certificate, projectName});
     }
 
     async getSettings(certificate, projectName) {
-        return await this.fetchData(
-            "get_settings", 
-            {
-                "certificate": certificate, 
-                "projectName": projectName
-            }
-        );
+        return await this.fetchData("get_settings", {certificate, projectName});
     }
 
-    getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        
-        if (parts.length === 2) {
-            return parts.pop().split(';').shift();
+    async getCertificateFromCookies() {
+        return await this.fetchData("get_certificateCookie", {});
+    }
+
+    async updateProjectData(certificate, projectName, simConfig, screenshot) {
+        return await this.submitData("update_projectData", {certificate, projectName, simConfig, screenshot});
+    }
+
+    async getProjectScreenshot(certificate, projectName) {
+        const connected = await this.connect();
+
+        if (!connected) {
+            return {status: "ERR", message: "Failed to connect to server"};
         }
-        return null;
+
+        const response = await fetch(`${this.ip}/get_projectScreenshot`, {
+            method: "GET",
+            headers: {certificate, projectName},
+            credentials: "include"
+        });
+
+        if (!response.status) { //dumb solution to an even dumber problem
+            return {status: "ERR", message: "Failed to fetch project screenshot"};
+        }
+
+        const blob = await response.blob();
+        return {status: "OK", image: URL.createObjectURL(blob)};
+    }
+
+    getProjNameFromUrl() {
+        return new URLSearchParams(window.location.search).get("projectName");
     }
 }
 

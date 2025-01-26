@@ -10,7 +10,7 @@ async function logout(event) {
     }
 }
 
-document.getElementById("titleBarButton").addEventListener("pointerdown", logout);
+document.getElementById("titleBarReturnButton").addEventListener("pointerdown", logout);
 
 function createNewProjectScreenKeyEvents(event) {
     if (event.key === "Escape") {
@@ -106,6 +106,7 @@ function showRenameProjectOverlay(event) {
 
 function hideRenameProjectOverlay(event) {
     document.getElementById("rename-project-overlay").classList.add("hidden");
+    document.getElementById("rename-project-error-message").innerHTML = ""; //clear in case the overlay is closed, then opened again
     document.removeEventListener("keydown", renameProjectScreenKeyEvents);
     document.addEventListener("keydown", dashboardKeyEvents);
 }
@@ -176,6 +177,7 @@ function dashboardKeyEvents(event) {
             focusedCard.classList.remove("focus");
             document.getElementById("renameProject").disabled = true;
             document.getElementById("deleteProject").disabled = true;
+
         }
         focusedCard = null;
     } 
@@ -226,9 +228,57 @@ function handleSelectProjectCard(event) {
     }
 }
 
-function openProjectWorkbench(projectName) {
+async function openProjectWorkbench(projectName) {
+    const certificate = sessionStorage.getItem("certificate");
+    if (!certificate) {
+        console.log("No certificate found");
+        location.href = "login.html";
+        return;
+    }
+
+    await communicator.updateAccessProjectTime(certificate, projectName);
     window.location.href = `projectWorkbench.html?projectName=${projectName}`;
 }
+
+//obllitory merge sort reference
+function mergeSortProjCardsByLastAccessed(projs, keys) {
+    if (keys.length <= 1) {
+        return keys;
+    }
+
+    const middle = Math.floor(keys.length / 2); 
+    const left = mergeSortProjCardsByLastAccessed(projs, keys.slice(0, middle));
+    const right = mergeSortProjCardsByLastAccessed(projs, keys.slice(middle));
+
+    let l_pointer = 0;
+    let r_pointer = 0;
+    let lr_merged = [];
+
+    while (l_pointer < left.length && r_pointer < right.length) {
+        //ugliest line I have written in quite a while...
+        if (new Date(projs[left[l_pointer]].lastAccessed) >= new Date(projs[right[r_pointer]].lastAccessed)) {
+            lr_merged.push(left[l_pointer]);
+            l_pointer++;
+        }
+        else {
+            lr_merged.push(right[r_pointer]);
+            r_pointer++;
+        }
+    }
+
+    while (l_pointer < left.length) {
+        lr_merged.push(left[l_pointer]);
+        l_pointer++;
+    }
+
+    while (r_pointer < right.length) {
+        lr_merged.push(right[r_pointer]);
+        r_pointer++;
+    }
+
+    return lr_merged;
+}
+
 
 async function loadProjectCards() {
     const certificate = sessionStorage.getItem("certificate");
@@ -266,22 +316,27 @@ async function loadProjectCards() {
         projects[projectNames[i]] = projectResponse.data;
     }
 
-    //sort projects by last accessed
-    //const sortedProjects = Object.values(projects).sort((a, b) => new Date(b.lastAccessed) - new Date(a.lastAccessed));
+    //sort by most recently accessed first
+    const sortedProjectNames = mergeSortProjCardsByLastAccessed(projects, Object.keys(projects));
 
-    for (const projectName in projects) {
+    for (const projectName of sortedProjectNames) {
         const project = projects[projectName];
-
-       //console.log(project);
 
         const projectCard = document.createElement("div");
         projectCard.className = "project-card";
         projectCard.tabIndex = 0;
-        projectCard.addEventListener("pointerdown", handleSelectProjectCard)
+        projectCard.addEventListener("pointerdown", handleSelectProjectCard);
+
+        const imgResponse = await communicator.getProjectScreenshot(certificate, projectName);
+
+        if (imgResponse.status !== "OK") {
+            console.log("Failed to load project screenshot:", imgResponse.message);
+            return;
+        }
 
         const img = document.createElement("img");
-        img.src = "./assets/project1.png";
-        img.alt = "Project Icon";
+        img.src = imgResponse.image;
+        img.alt = "Project Screenshot";
 
         const projectDetails = document.createElement("div");
         projectDetails.className = "project-details";

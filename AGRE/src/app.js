@@ -1,10 +1,10 @@
-import {clock} from "./core/clock.js"; //
-import {axisViewport} from "./core/axisViewPort.js"; //
-import {masterRenderer, orientationRenderer, axisRenderer} from "./core/renderer.js"; //
-import {camera} from "./core/camera.js"; //
-import {updateCameraModeOverlay, updateCameraPerspectiveOverlays, updateFpsOverlay} from "./core/overlays.js"; //#
-import {bindVisabilityChange, bindAllControls} from "./core/listeners.js"; //#
-import {orientationMenu} from "./core/orientationViewPort.js"; //
+import {clock} from "./core/clock.js";
+import {axisViewport} from "./core/axisViewPort.js";
+import {masterRenderer, orientationRenderer, axisRenderer} from "./core/renderer.js";
+import {camera} from "./core/camera.js";
+import {updateCameraModeOverlay, updateCameraPerspectiveOverlays, updateFpsOverlay} from "./core/overlays.js";
+import {bindVisabilityChange, bindAllControls, quickReleaseKeys} from "./core/listeners.js";
+import {orientationMenu} from "./core/orientationViewPort.js";
 
 
 export class GraphicsEngine {
@@ -14,7 +14,7 @@ export class GraphicsEngine {
         this.loop;
 
         //get elements from HTML
-        this.gl = this.canvas.getContext("webgl2", {antialias: true});
+        this.gl = this.canvas.getContext("webgl2", {antialias: true, preserveDrawingBuffer: true});
 
         //initialize WebGL
         this.gl.clearColor(0, 0, 0, 1);
@@ -57,30 +57,37 @@ export class GraphicsEngine {
         clock.updateDeltaT();
         updateFpsOverlay();
 
-        this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
+        this.forceAnimationFrame();
     };
 
     start = () => {
         //condition here as a quick fix for initial hidden document "inifinity fps issue"
         if (!document.hidden) {
-            camera.forceUpdateCamera(masterRenderer.matricies.view);
-            camera.forceUpdateCamera(axisRenderer.matricies.view);
-            //camera.forceUpdateCamera(orientationRenderer.matricies.view);
-            requestAnimationFrame(this.mainloop);
+            this.quickAnimationStart();
         }
     }
 
     onVisibilityChange = () => {
         if (document.hidden) {
+            quickReleaseKeys();
             cancelAnimationFrame(this.currentAnimationFrame);
         } 
         else {
-            clock.last_t = window.performance.now();
-            camera.forceUpdateCamera(masterRenderer.matricies.view);
-            camera.forceUpdateCamera(axisRenderer.matricies.view);
-            //camera.forceUpdateCamera(orientationRenderer.matricies.view);
-            this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
+            this.forceAnimationFrame();
         }
+    }
+
+    quickAnimationStart() {
+        cancelAnimationFrame(this.currentAnimationFrame);
+
+        this.forceAnimationFrame();
+    }
+
+    forceAnimationFrame() {
+        camera.forceUpdateCamera(masterRenderer.matricies.view);
+        camera.forceUpdateCamera(axisRenderer.matricies.view);
+        //camera.forceUpdateCamera(orientationRenderer.matricies.view);
+        this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
     }
 
     resizeCanvas() {

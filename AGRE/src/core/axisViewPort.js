@@ -27,7 +27,7 @@ class AxisViewport {
         this.canvas = document.getElementById("axisViewport-surface");
         
         //get elements from HTML
-        this.gl = this.canvas.getContext("webgl2", {antialias: true});
+        this.gl = this.canvas.getContext("webgl2", {antialias: true, preserveDrawingBuffer: true});
 
         //initialize WebGL
         this.gl.clearColor(0.0, 0.0, 0.0, 0.0);

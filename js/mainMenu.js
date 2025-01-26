@@ -2,7 +2,14 @@ import {communicator} from "./communicator.js";
 
 
 async function handleLogin() {
-    const certificate = communicator.getCookie("certificate");
+    const response = await communicator.getCertificateFromCookies();
+
+    if (response.status !== "OK") {
+        console.log(response.message);
+        return;
+    }
+
+    const certificate = response.certificate;
 
     if (certificate) {
         console.log("user is already logged in with certificate:", certificate);

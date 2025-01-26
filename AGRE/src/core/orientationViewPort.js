@@ -4,7 +4,6 @@ import {camera} from "./camera.js";
 import {orientationRenderer} from "./renderer.js";
 import {BasicShader} from "./shaders.js";
 
-const axisViewportSize = 130;
 
 const objects = [
     new Cylinder("Xander", 0.4, 0, 0, 0, linearAlgebra.halfPi, 0, 0.04, 0.8, 5, [1, 0, 0]), 
@@ -18,8 +17,6 @@ const objects = [
 class OrientationMenu {
     constructor() {
         this.canvas = document.getElementById("orientationViewport-surface");
-        this.canvas.width = axisViewportSize;
-        this.canvas.height = axisViewportSize;
         
         //get elements from HTML
         this.gl = this.canvas.getContext("webgl2", {antialias: true});

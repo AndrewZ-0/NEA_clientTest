@@ -158,3 +158,32 @@
     cursor: not-allowed;
 }
 
+
+
+
+#projectEdits {
+    height: 50px; 
+    width: 100%; 
+    justify-content: right;
+}
+
+
+#renameProject {
+    width: 35px; 
+    height: 35px; 
+    text-decoration: underline; 
+    font-size: 25px; 
+    background-color: #f9f9f9;
+}
+
+#deleteProject {
+    width: 35px; 
+    height: 35px; 
+    font-size: 25px; 
+    background-color: #f9f9f9;
+}
+
+
+
+
+
