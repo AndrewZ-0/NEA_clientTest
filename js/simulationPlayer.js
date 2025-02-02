@@ -73,7 +73,7 @@ async function loadData() {
     objectHeaders = response.headers;
     frames = response.frames;
 
-    //console.log(objectHeaders);
+    console.log(simConfig);
     //console.log(frames);
 
     //frames = projectData.data.frames;
@@ -103,47 +103,68 @@ async function loadData() {
 
 
 let currentFrame = 0;
-async function playSimulation(event) {
-    if (!frames || frames.length === 0) {
-        console.error("No frames to play.");
+let isPaused = true;
+
+function playSimulationFrame() {
+    if (!frames || frames.length === 0 || isPaused) {
+        togglePause();
         return;
     }
 
     const noOfObject = objectHeaders.length;
+    const frame = frames[currentFrame];
 
-    document.getElementById("playButton").disabled = true;
+    for (let i = 0; i < noOfObject; i++) {
+        const objectData = frame[i];
+        const objectName = objectHeaders[i];
 
-    while (currentFrame < frames.length) {
-        const frame = frames[currentFrame];
-
-        for (let i = 0; i < noOfObject; i++) {
-            const objectData = frame[i];
-            const objectName = objectHeaders[i];
-            
-            const object = masterRenderer.objects[i];
-            object.x = objectData[0];
-            object.y = objectData[1];
-            object.z = objectData[2];
-        }
-
-        updateProgressBar(((currentFrame + 1) / frames.length) * 100);
-        updateTiming((currentFrame + 1), frames.length);
-
-        currentFrame++;
-
-
-        masterRenderer.quickInitialise(masterRenderer.objects);
-        ge.quickAnimationStart();
-
-
-        await new Promise(resolve => setTimeout(resolve, simConfig.deltaT * 1000));
+        const object = masterRenderer.objects[i];
+        object.x = objectData[0];
+        object.y = objectData[1];
+        object.z = objectData[2];
     }
 
-    //document.getElementById("playButton").disabled = false;
+    // Update progress and time
+    updateProgressBar(((currentFrame + 1) / frames.length) * 100);
+    updateTiming((currentFrame + 1), frames.length);
+
+    currentFrame += 5;
+
+    masterRenderer.quickInitialise(masterRenderer.objects);
+    ge.quickAnimationStart();
+
+    if (currentFrame < frames.length) {
+        requestAnimationFrame(playSimulationFrame);
+    }
 }
 
+async function startSimulation() {
+    if (isPaused) {
+        isPaused = false;
+        togglePause();
+        requestAnimationFrame(playSimulationFrame);
+    }
+}
 
-document.getElementById("playButton").addEventListener("pointerdown", playSimulation);
+function pauseSimulation(event) {
+    isPaused = true;
+    togglePause();
+}
+
+function togglePause() {
+    if (isPaused) {
+        document.getElementById("pauseButton").classList.add("hidden");
+        document.getElementById("playButton").classList.remove("hidden");
+    } 
+    else {
+        document.getElementById("pauseButton").classList.remove("hidden");
+        document.getElementById("playButton").classList.add("hidden");
+    }
+}
+
+document.getElementById("playButton").addEventListener("pointerdown", startSimulation);
+document.getElementById("pauseButton").addEventListener("pointerdown", pauseSimulation);
+
 
 function updateProgressBar(progress) {
     const progressBar = document.getElementById("simulationProgressBar-progress");

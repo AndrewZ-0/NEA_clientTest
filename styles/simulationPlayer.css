@@ -77,6 +77,14 @@
     line-height: 22px;
 }
 
+#playButton {
+    background-color: #fff;
+}
+
+#pauseButton {
+    background-color: #fff;
+}
+
 #simulationProgressBarContainer {
     position: fixed;
     bottom: 0;
