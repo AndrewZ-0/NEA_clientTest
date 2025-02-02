@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+
+<html lang = "en">
+
+	<head>
+		<meta name = "viewport" content = "width = device-width, initial-scale = 1.0">
+
+		<title>PhIMo-V1.0</title>
+
+		<link rel = "stylesheet" href = "styles.css">
+        <script src = "index.js" type = "module" defer></script>
+	</head>
+
+	<body>
+		<div id = "overlay">
+            <p id = "shaderMode-overlay" class = "overlay-element"></p>
+            <p id = "cameraMode-overlay" class = "overlay-element"></p>
+            <p id = "fov-overlay" class = "overlay-element"></p>
+            <p id = "near-overlay" class = "overlay-element"></p>
+            <p id = "far-overlay" class = "overlay-element"></p>
+			<p id = "fps-overlay" class = "overlay-element"></p>
+
+            <p id = "x-overlay" class = "overlay-element"></p>
+            <p id = "y-overlay" class = "overlay-element"></p>
+            <p id = "z-overlay" class = "overlay-element"></p>
+            <p id = "pitch-overlay" class = "overlay-element"></p>
+            <p id = "yaw-overlay" class = "overlay-element"></p>
+            <p id = "roll-overlay" class = "overlay-element"></p>
+
+            <p id = "r-overlay" class = "overlay-element"></p>
+            <p id = "altitude-overlay" class = "overlay-element"></p>
+            <p id = "azimuth-overlay" class = "overlay-element"></p>
+
+
+            <p id = "selection-overlay" class = "overlay-element"></p>
+            <p id = "selectionMovement-overlay" class = "overlay-element"></p>
+            <p id = "mouseX-overlay" class = "overlay-element"></p>
+            <p id = "mouseY-overlay" class = "overlay-element"></p>
+		</div>
+
+        <div id>
+
+        </div>
+
+        <div id = "canvas-container">
+            <canvas id = "model-surface"></canvas>
+            <canvas id = "axisViewport-surface"></canvas>
+            <canvas id = "orientationViewport-surface"></canvas>
+        </div>
+
+		
+        
+        <!--
+		<div style = "position: absolute; bottom: 0px;">
+			<i>This application is and forever shall be 1200x650! Screen not big enough? SKILL ISSUE!</i>
+		</div>
+
+		<div style = "position: absolute; bottom: 0px;">
+			<i>Commands:</i>
+			<ul>
+				<li>W A S D: forward, left, back, right</li>
+				<li>SPACE: up</li>
+				<li>Shift: down</li>
+				<li>mouse_drag: pitch/yaw</li>
+			</ul> 
+		</div>
+		-->
+	</body>
+
+</html>
