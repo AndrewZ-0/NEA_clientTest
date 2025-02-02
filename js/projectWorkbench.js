@@ -3,58 +3,183 @@ import {masterRenderer} from "../AGRE/src/core/renderer.js";
 import {updateSelectedOverlay} from "../AGRE/src/core/overlays.js";
 import {Cube, Cylinder, Sphere, Torus} from "../AGRE/src/objects/objects.js";
 import {communicator} from "./communicator.js";
-import {bindAllControls, unbindAllKeyControls} from "../AGRE/src/core/listeners.js";
+import {bindAllControls, unbindAllKeyControls, quickReleaseKeys} from "../AGRE/src/core/listeners.js";
+import {calculateScaledFidelity} from "../AGRE/src/utils/renderProperties.js";
+
+
+
+let ge;
+let projectData = {"deltaT": null, "noOfFrames": null, "objects": {}};
+let settingsData = {};
 
 function returnToDashboard(event) {
     location.href = "projectDashboard.html";
 }
 
-let ge;
-let objectsData = {};
-let settingsData = {};
+document.getElementById("titleBarReturnButton").addEventListener("pointerdown", returnToDashboard);
 
-document.getElementById("titleBarReturnButton-workbench").addEventListener("pointerdown", returnToDashboard);
+function simulationMenuKeyEvents(event) {
+    if (event.key === "Escape") {
+        const simulationList = document.getElementById("simulationList");
+        simulationList.value = "";
+        updateSimulationButtons();
+    }
+}
+
+function showPlaySimulationMenu(event) {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.getElementById("playSimulationMenu-overlay").classList.remove("hidden");
+
+    loadSimulations();
+    document.addEventListener("keydown", simulationMenuKeyEvents);
+
+    validateSimulaitonConfigEntrys();
+}
+
+function hidePlaySimulationMenu(event) {
+    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    bindAllControls(ge.canvas);
+    document.getElementById("playSimulationMenu-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", simulationMenuKeyEvents);
+}
+
+document.getElementById("playButton").addEventListener("pointerdown", showPlaySimulationMenu);
+document.getElementById("hide-playSimulationMenu-overlay-button").addEventListener("pointerup", hidePlaySimulationMenu);
+
+function updateSimulationButtons() {
+    const simulationList = document.getElementById("simulationList");
+
+    const openSimulationButton = document.getElementById("openSimulation");
+    const deleteSimulationButton = document.getElementById("deleteSimulation");
+    const renameSimulationButton = document.getElementById("renameSimulation");
+
+    if (simulationList.value !== "") {
+        openSimulationButton.disabled = false;
+        deleteSimulationButton.disabled = false;
+        renameSimulationButton.disabled = false;
+
+        openSimulationButton.addEventListener("pointerdown", openSimulation);
+        deleteSimulationButton.addEventListener("pointerdown", deleteSimulation);
+        renameSimulationButton.addEventListener("pointerdown", renameSimulation);
+    }
+    else {
+        openSimulationButton.disabled = true;
+        deleteSimulationButton.disabled = true;
+        renameSimulationButton.disabled = true;
+
+        openSimulationButton.removeEventListener("pointerdown", openSimulation);
+        deleteSimulationButton.removeEventListener("pointerdown", deleteSimulation);
+        renameSimulationButton.removeEventListener("pointerdown", renameSimulation);
+    }
+}
+
+document.getElementById("simulationList").addEventListener("change", updateSimulationButtons);
+
+async function loadSimulations() {
+    const projectName = communicator.getProjNameFromUrl();
+    const response = await communicator.list_project_simulations(projectName);
+
+    if (response.status !== "OK") {
+        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+        errorMessageDiv.textContent = `Failed to load simulations: ${response.message}`;
+        return;
+    }
+
+    const simulationList = document.getElementById("simulationList");
+    simulationList.replaceChildren();
+
+    for (const simulation of response.data) {
+        const option = document.createElement("option");
+        option.value = simulation;
+        option.textContent = simulation;
+        simulationList.appendChild(option);
+    }
+
+    updateSimulationButtons();
+}
+
+async function deleteSimulation() {
+    const simulationList = document.getElementById("simulationList");
+    const selectedSimulation = simulationList.value;
+    const projectName = communicator.getProjNameFromUrl();
+
+    const response = await communicator.deleteSimulation(projectName, selectedSimulation);
+
+    if (response.status !== "OK") {
+        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+        errorMessageDiv.textContent = `Failed to delete simulation: ${response.message}`;
+        return;
+    }
+
+    loadSimulations();
+}
+
+async function renameSimulation() {
+    const simulationList = document.getElementById("simulationList");
+    const selectedSimulation = simulationList.value;
+    const newSimulationName = prompt("Enter new simulation name:");
+    const projectName = communicator.getProjNameFromUrl();
+
+    const response = await communicator.renameSimulation(projectName, selectedSimulation, newSimulationName);
+
+    if (response.status !== "OK") {
+        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+        errorMessageDiv.textContent = `Failed to rename simulation: ${response.message}`;
+        return;
+    }
+
+    loadSimulations();
+}
+
+document.getElementById("computeNewSimulationButton").addEventListener("pointerdown", createAndComputeNewSimulation);
+
+function openSimulation() {
+    const simulationList = document.getElementById("simulationList");
+    const selectedSimulation = simulationList.value;
+    const projectName = communicator.getProjNameFromUrl();
+
+    window.location.href = `simulationPlayer.html?project=${projectName}&simulation=${selectedSimulation}`;
+}
 
 async function loadData() {
-    const certificate = sessionStorage.getItem("certificate");
-    if (!certificate) {
-        console.log("No certificate found");
-        location.href = "login.html";
-        return;
-    }
-
     const projectName = communicator.getProjNameFromUrl();
-    console.log("Opening project:", projectName);
     
-    document.getElementById("titlebar-project-name").innerHTML = projectName;
+    document.getElementById("titlebar-project-name").textContent = projectName;
 
-    const projectData = await communicator.getProjectData(certificate, projectName);
+    const projectResponse = await communicator.getProjectData(projectName);
 
-    if (projectData.status !== "OK") {
-        console.error("Failed to load project data:", projectData.message);
+    if (projectResponse.status !== "OK") {
+        console.error("Failed to load project data:", projectResponse.message);
         return;
     }
 
-    document.getElementById("projectDataMenu-projectName").innerHTML = projectName;
-    document.getElementById("project-creation-date").innerHTML = projectData.data.creationDate;
+    document.getElementById("projectDataMenu-projectName").textContent = projectName;
+    document.getElementById("project-creation-date").textContent = projectResponse.data.creationDate;
 
-    objectsData = projectData.data.simConfig;
-    settingsData = projectData.data.settings; //will use this later
+    if (Object.keys(projectResponse.data.simConfig).length > 0) {
+        projectData = projectResponse.data.simConfig;
+    }
+
+    settingsData = projectResponse.data.settings; //will use this later
     let objects = [];
-    for (let objectName in objectsData) {
-        if (objectsData[objectName]["dtype"] === 0) {
-            const obj = objectsData[objectName]["object"];
+    for (let objectName in projectData.objects) {
+        if (projectData.objects[objectName]["dtype"] === 0) {
+            const obj = projectData.objects[objectName];
 
             let colour = obj["colour"];
 
             const radius = obj["radius"];
-            const fidelity = Math.max(Math.min(radius, 240), 25);
+            const fidelity = calculateScaledFidelity(radius);
 
             objects.push(new Sphere(objectName, ...obj["position"], radius, fidelity, colour)); 
         }
     }
 
-    ge = new GraphicsEngine(objects);
+    ge = new GraphicsEngine(objects, true);
     ge.start();
 }
 
@@ -124,21 +249,25 @@ function workbenchKeyEvents(event) {
     //legacy stuff: backspace used to be here for deleting objects
 }
 
-document.getElementById("createObject-button").addEventListener("pointerdown", createObject);
+document.getElementById("createObject-button").addEventListener("pointerup", createObject);
 
 
-function openCreateObjectOverlay() {
+function showCreateObjectOverlay() {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workbenchKeyEvents);
     document.getElementById("createObject-overlay").classList.remove("hidden");
     document.addEventListener("keydown", createObjectOverlayKeyEvents); 
-    
-    unbindAllKeyControls();
 
-    document.removeEventListener("keydown", workbenchKeyEvents);
+    fillObjectNameOnCreateObjectOverlay();
 }
 
 function hideCreateObjectOverlay() {
     const errorMessageDiv = document.getElementById("createObject-error-message");
     errorMessageDiv.textContent = ""; //clear prev msgs
+
+    document.getElementById("objectName").value = "";
 
     document.getElementById("createObject-overlay").classList.add("hidden");
     document.removeEventListener("keydown", createObjectOverlayKeyEvents);
@@ -157,9 +286,9 @@ function hexToVec3(colourHex) {
 }
 
 function vec3ToHex(colourVec3) {
-    const r = Math.round(colourVec3[0] * 255).toString(16).padStart(2, '0');
-    const g = Math.round(colourVec3[1] * 255).toString(16).padStart(2, '0');
-    const b = Math.round(colourVec3[2] * 255).toString(16).padStart(2, '0');
+    const r = Math.round(colourVec3[0] * 255).toString(16).padStart(2, "0");
+    const g = Math.round(colourVec3[1] * 255).toString(16).padStart(2, "0");
+    const b = Math.round(colourVec3[2] * 255).toString(16).padStart(2, "0");
 
     return "#" + r + g + b;
 }
@@ -183,15 +312,17 @@ function clearUnsavedChanges() {
 function createObject() {
     const name = document.getElementById("objectName").value;
 
-    const errorMessageDiv = document.getElementById("createObject-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    if (name in objectsData) {
+    if (name in projectData.objects) {
+        const errorMessageDiv = document.getElementById("createObject-error-message");
         errorMessageDiv.textContent = "Object name is taken.";
         return;
     }
 
     const objectType = document.getElementById("objectType").value;
+
+    if (! validateCreateObjectEntries()) {
+        return;
+    }
 
     let newObject;
     if (objectType === "0") {
@@ -205,24 +336,19 @@ function createObject() {
             y: parseFloat(document.getElementById("velocity-y").value),
             z: parseFloat(document.getElementById("velocity-z").value)
         };
+
         const radius = parseFloat(document.getElementById("radius").value);
-        if (isNaN(radius)) {
-            errorMessageDiv.textContent = "Radius must be a valid number.";
-            return;
-        }
+        const mass = parseFloat(document.getElementById("mass").value);
         const colour = hexToVec3(document.getElementById("colour").value);
 
-        const fidelity = Math.floor(Math.log(radius + 1) * 30);
+        const fidelity = calculateScaledFidelity(radius);
         newObject = new Sphere(name, position.x, position.y, position.z, radius, fidelity, colour);
 
-        objectsData[name] = {
+        projectData.objects[name] = {
             dtype: 0,
-            object: {
-                position: [position.x, position.y, position.z],
-                velocity: [velocity.x, velocity.y, velocity.z],
-                radius: radius,
-                colour: colour
-            }
+            position: [position.x, position.y, position.z],
+            velocity: [velocity.x, velocity.y, velocity.z],
+            radius, mass, colour
         };
     } 
     
@@ -240,13 +366,93 @@ function createObject() {
     hideCreateObjectOverlay();
 }
 
+function validateCreateObjectEntries() {
+    const errorMessageDiv = document.getElementById("createObject-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const name = document.getElementById("objectName").value;
+
+    const nameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!nameRegex.test(name)) {
+        errorMessageDiv.textContent = `Object name (${name}) is invalid. Only characters (A-Z, a-z, _ and 0-9) are allowed`;
+        return;
+    } 
+
+    const axes = ["x", "y", "z"];
+
+    for (const axis of axes) {
+        const val = parseFloat(document.getElementById(`position-${axis}`).value);
+        if (isNaN(val)) {
+            errorMessageDiv.textContent = `Position (${axis}) value must be a float.`;
+            return false;
+        }
+    }
+
+    for (const axis of axes) {
+        const val = parseFloat(document.getElementById(`velocity-${axis}`).value);
+        if (isNaN(val)) {
+            errorMessageDiv.textContent = `Velocity (${axis}) value must be a float.`;
+            return false;
+        }
+    }
+
+    const radius = parseFloat(document.getElementById("radius").value);
+    if (isNaN(radius) || radius <= 0) {
+        errorMessageDiv.textContent = "Radius must be a non-zero positive integer.";
+        return false;
+    }
+
+    const mass = parseFloat(document.getElementById("mass").value);
+    if (isNaN(mass) || mass <= 0) {
+        errorMessageDiv.textContent = "Mass must be a non-zero positive integer.";
+        return false;
+    }
+
+    return true;
+}
+
+document.getElementById("objectName").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("position-x").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("position-y").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("position-z").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("velocity-x").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("velocity-y").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("velocity-z").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("radius").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("mass").addEventListener("input", validateCreateObjectEntries);
+document.getElementById("colour").addEventListener("input", validateCreateObjectEntries);
+
+
+
+function fillObjectNameOnCreateObjectOverlay() {
+    const currName = document.getElementById("objectName").value;
+
+    if (currName === "") {
+        let NewName = "Unnamed";
+
+        if (NewName in projectData.objects || NewName.toLowerCase() in projectData.objects) {
+            let i = 2;
+            while (NewName + i in projectData.objects || NewName.toLowerCase() + i in projectData.objects) {
+                i++;
+            }
+
+            NewName += i;
+        }
+
+        document.getElementById("objectName").value = NewName;
+    }
+    
+}
+
 function deleteObject() {
     if (masterRenderer.currentSelection !== null) {
         const name = masterRenderer.objects[masterRenderer.currentSelection].name;
-        delete objectsData[name];
+        delete projectData.objects[name];
 
         masterRenderer.objects.splice(masterRenderer.currentSelection, 1);
         masterRenderer.currentSelection = null;
+
+        toggleObjectDataMenu();
 
         masterRenderer.quickInitialise(masterRenderer.objects);
         ge.quickAnimationStart();
@@ -259,7 +465,7 @@ function deleteObject() {
 function recordObjectMovement(event) {
     const movedObject = event.detail;
 
-    objectsData[movedObject.name].object.position = [movedObject.x, movedObject.y, movedObject.z];
+    projectData.objects[movedObject.name].position = [movedObject.x, movedObject.y, movedObject.z];
 
     populateObjectDataForm(movedObject);
 
@@ -267,10 +473,12 @@ function recordObjectMovement(event) {
 }
 
 function populateObjectDataForm(object) {
+    const errorMessageDiv = document.getElementById("editObject-error-message");
+    errorMessageDiv.textContent = "";
     document.getElementById("edit-objectName").value = object.name;
     
     let dtype;
-    if (objectsData[object.name].dtype === 0) {
+    if (projectData.objects[object.name].dtype === 0) {
         dtype = "Particle";
     }
     else {
@@ -281,35 +489,72 @@ function populateObjectDataForm(object) {
     document.getElementById("edit-position-x").value = object.x;
     document.getElementById("edit-position-y").value = object.y;
     document.getElementById("edit-position-z").value = object.z;
-    document.getElementById("edit-velocity-x").value = objectsData[object.name].object.velocity[0];
-    document.getElementById("edit-velocity-y").value = objectsData[object.name].object.velocity[1];
-    document.getElementById("edit-velocity-z").value = objectsData[object.name].object.velocity[2];
-    document.getElementById("edit-radius").value = objectsData[object.name].object.radius;
-    document.getElementById("edit-colour").value = vec3ToHex(objectsData[object.name].object.colour);
+    document.getElementById("edit-velocity-x").value = projectData.objects[object.name].velocity[0];
+    document.getElementById("edit-velocity-y").value = projectData.objects[object.name].velocity[1];
+    document.getElementById("edit-velocity-z").value = projectData.objects[object.name].velocity[2];
+    document.getElementById("edit-radius").value = projectData.objects[object.name].radius;
+    document.getElementById("edit-mass").value = projectData.objects[object.name].mass;
+    document.getElementById("edit-colour").value = vec3ToHex(projectData.objects[object.name].colour);
 }
 
 function updateObjectData() {
+    const errorMessageDiv = document.getElementById("editObject-error-message");
+    errorMessageDiv.textContent = "";
+
     const selectedObject = masterRenderer.objects[masterRenderer.currentSelection];
 
     const name = document.getElementById("edit-objectName").value;
-    const position = {
-        x: parseFloat(document.getElementById("edit-position-x").value),
-        y: parseFloat(document.getElementById("edit-position-y").value),
-        z: parseFloat(document.getElementById("edit-position-z").value)
-    };
-    const velocity = {
-        x: parseFloat(document.getElementById("edit-velocity-x").value),
-        y: parseFloat(document.getElementById("edit-velocity-y").value),
-        z: parseFloat(document.getElementById("edit-velocity-z").value)
-    };
 
-    const radius = parseFloat(document.getElementById("edit-radius").value);
-    if (isNaN(radius)) {
-        populateObjectDataForm(selectedObject); //kinda bad on cpu, but then again im like rendering 3 webgl viewports...
+    const nameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!nameRegex.test(name)) {
+        errorMessageDiv.textContent = `Object name (${name}) is invalid. Only characters (A-Z, a-z, _ and 0-9) are allowed`;
+        return;
+    } 
+
+    const axes = ["x", "y", "z"];
+
+    let position = {};
+    for (const axis of axes) {
+        const inp = document.getElementById(`edit-position-${axis}`);
+        const val = parseFloat(inp.value);
+        if (isNaN(val)) {
+            errorMessageDiv.textContent = `Position (${axis}) must be a float`;
+            return;
+        }
+        position[axis] = val
+    }
+
+    let velocity = {};
+    for (const axis of axes) {
+        const inp = document.getElementById(`edit-velocity-${axis}`);
+        const val = parseFloat(inp.value);
+        if (isNaN(val)) {
+            errorMessageDiv.textContent = `Velocity (${axis}) must be a float`;
+            return;
+        }
+        velocity[axis] = val
+    }
+
+    const radiusInp = document.getElementById("edit-radius");
+    const radius = parseFloat(radiusInp.value);
+    if (isNaN(radius) || radius <= 0) {
+        errorMessageDiv.textContent = "Radius must be a positive non-zero float";
         return;
     }
 
+    const massInp = document.getElementById("edit-mass");
+    const mass = parseFloat(massInp.value);
+    if (isNaN(mass) || mass <= 0) {
+        errorMessageDiv.textContent = "Mass must be a positive non-zero float";
+        return;
+    }
+
+    const fidelity = calculateScaledFidelity(radius);
+
     const colour = hexToVec3(document.getElementById("edit-colour").value);
+
+    const oldObjectName = selectedObject.name;
+    const oldDtype = projectData.objects[oldObjectName].dtype;
 
     //update view data
     selectedObject.name = name;
@@ -318,14 +563,23 @@ function updateObjectData() {
     selectedObject.z = position.z;
     selectedObject.radius = radius;
     selectedObject.colour = colour;
+    selectedObject.fidelity = fidelity;
 
     //update model data
-    objectsData[selectedObject.name].object.position = [position.x, position.y, position.z];
-    objectsData[selectedObject.name].object.velocity = [velocity.x, velocity.y, velocity.z];
-    objectsData[selectedObject.name].object.radius = radius;
-    objectsData[selectedObject.name].object.colour = colour;
+    if (oldObjectName !== name) {
+        delete projectData.objects[oldObjectName];
+        projectData.objects[name] = {};
+    }
+    projectData.objects[name].position = [position.x, position.y, position.z];
+    projectData.objects[name].velocity = [velocity.x, velocity.y, velocity.z];
+    projectData.objects[name].radius = radius;
+    projectData.objects[name].mass = mass;
+    projectData.objects[name].colour = colour;
+    projectData.objects[name].dtype = oldDtype;
 
-    masterRenderer.objects[masterRenderer.currentSelection] = selectedObject;
+    //masterRenderer.objects[masterRenderer.currentSelection] = selectedObject;
+
+    //masterRenderer.currentSelection = name;
 
     masterRenderer.quickInitialise(masterRenderer.objects);
     ge.quickAnimationStart();
@@ -368,6 +622,7 @@ document.getElementById("edit-velocity-x").addEventListener("input", updateObjec
 document.getElementById("edit-velocity-y").addEventListener("input", updateObjectData);
 document.getElementById("edit-velocity-z").addEventListener("input", updateObjectData);
 document.getElementById("edit-radius").addEventListener("input", updateObjectData);
+document.getElementById("edit-mass").addEventListener("input", updateObjectData);
 document.getElementById("edit-colour").addEventListener("input", updateObjectData);
 
 
@@ -375,7 +630,6 @@ document.getElementById("edit-colour").addEventListener("input", updateObjectDat
 document.addEventListener("objectMoved", recordObjectMovement);
 
 async function saveProjectData() {
-    const certificate = sessionStorage.getItem("certificate");
     const projectName = communicator.getProjNameFromUrl();
 
     //super jank solution to merge the two surfaces when screenshotting (courtesty of stack overflow)
@@ -394,16 +648,228 @@ async function saveProjectData() {
 
     const screenshot = offScreenCanvas.toDataURL("image/png");
 
-    await communicator.updateProjectData(certificate, projectName, objectsData, screenshot);
+    await communicator.updateProjectData(projectName, projectData, screenshot);
     clearUnsavedChanges();
 }
 
-document.getElementById("openCreateObjectMenu-button").addEventListener("pointerdown", openCreateObjectOverlay);
-document.getElementById("hide-createObject-overlay-button").addEventListener("pointerdown", hideCreateObjectOverlay);
+document.getElementById("openCreateObjectMenu-button").addEventListener("pointerdown", showCreateObjectOverlay);
+document.getElementById("hide-createObject-overlay-button").addEventListener("pointerup", hideCreateObjectOverlay);
 
 document.getElementById("deleteObject-button").addEventListener("pointerdown", deleteObject);
 document.addEventListener("keydown", workbenchKeyEvents);
 
 document.getElementById("saveProjectButton").addEventListener("pointerdown", saveProjectData);
 
-loadData();
+
+
+
+let currentActiveWorkerId = null;
+let currentComputingSimulationName = null;
+
+let progressUpdateInterval;
+let currentProgressTimeout;
+let lastProgress;
+let start_t;
+
+async function updateComputingProgress() {
+    const response = await communicator.getComputingProgress(currentActiveWorkerId);
+
+    if (response.status !== "OK") {
+        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+        errorMessageDiv.textContent = `Failed to get simulation computing progress: ${response.message}`;
+        return;
+    }
+
+    const progress = response.progress;
+
+    if (progress === "COMPUTATION COMPLETE") {
+        document.getElementById("computeProgress").classList.add("hidden");
+        document.getElementById("stopComputingButton").classList.add("hidden");
+        document.getElementById("computeNewSimulationButton").classList.remove("hidden");
+        document.getElementById("simulationConfigs").classList.remove("hidden");
+        currentActiveWorkerId = null;
+        currentComputingSimulationName = null;
+
+        document.getElementById("computeProgressBar-progress").style.width = "0%";
+
+        loadSimulations();   
+    } 
+    else {
+        const progressBar = document.getElementById("computeProgressBar-progress");
+        
+        const deltaProgress = progress - lastProgress;
+
+        lastProgress = progress;
+
+        const expectedComputeTime = (1 - progress) / deltaProgress * progressUpdateInterval;
+        const days = Math.floor(expectedComputeTime / 86400000);
+        const hours = Math.floor((expectedComputeTime % 86400000) / 3600000);
+        const minutes = Math.floor((expectedComputeTime % 3600000) / 60000);
+        const seconds = Math.floor((expectedComputeTime % 60000) / 1000);
+
+        const totalTimeEstimate = (Date.now() - start_t) / progress;
+
+        let waitTimeText = "Approx wait time: ";
+        if (days > 0) {
+            waitTimeText += `${days}d ${hours}h ${minutes}m `;
+        }
+        else if (hours > 0) { 
+            waitTimeText += `${hours}h ${minutes}m `;
+        }
+        else if (minutes > 0) {
+            waitTimeText += `${minutes}m `;
+        }
+        waitTimeText += `${seconds}s`;
+
+        document.getElementById("compute-approximateWaitTime").textContent = waitTimeText;
+
+
+        progressUpdateInterval = totalTimeEstimate / Math.cbrt(totalTimeEstimate);
+
+        progressUpdateInterval = Math.round(progressUpdateInterval);
+
+        const progressBarTiming = {
+            duration: progressUpdateInterval,
+            iterations: 1,
+            fill: "forwards"
+        };
+        
+        progressBar.style.transitionTimingFunction = progressBarTiming;
+
+        const progressPercentage = progress * 100;
+
+        progressBar.style.width = `${progressPercentage}%`;
+
+        document.getElementById("computeProgressText").textContent = `${progressPercentage.toFixed(2)}%`;
+
+        currentProgressTimeout = setTimeout(updateComputingProgress, progressUpdateInterval);
+    }
+}
+
+async function stopComputingSimulation() {
+    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const projectName = communicator.getProjNameFromUrl();
+
+    const response = await communicator.stopComputing(
+        projectName, currentComputingSimulationName, currentActiveWorkerId
+    );
+
+    if (response.status !== "OK") {
+        errorMessageDiv.textContent = `Failed to stop Computing: ${response.message}`;
+        return;
+    }
+
+    currentComputingSimulationName = null;
+
+    clearTimeout(currentProgressTimeout);
+
+
+    document.getElementById("computeProgress").classList.add("hidden");
+    document.getElementById("stopComputeButton").classList.add("hidden");
+    document.getElementById("computeNewSimulationButton").classList.remove("hidden");
+    document.getElementById("simulationConfigs").classList.remove("hidden");
+
+    if (currentActiveWorkerId) {
+        currentActiveWorkerId = null;
+        loadSimulations();
+    }
+}
+
+async function createAndComputeNewSimulation() {
+    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+    if (! validateSimulaitonConfigEntrys()) {
+        return;
+    }
+
+    const projectName = communicator.getProjNameFromUrl();
+
+    projectData.deltaT = parseFloat(document.getElementById("deltaT").value);
+    projectData.noOfFrames = parseInt(document.getElementById("noOfFrames").value);
+
+    saveProjectData();
+
+    const newSimulationName = prompt("Enter new simulation name:");
+
+    if (newSimulationName === "") {
+        errorMessageDiv.textContent = "No name provided for new simulation.";
+        return;
+    }
+    if (newSimulationName === null) {
+        return; //exited prompt
+    }
+
+    const response = await communicator.startComputing(projectName, newSimulationName);
+
+    if (response.status !== "OK") {
+        errorMessageDiv.textContent = `Failed to start computing simulation: ${response.message}`;
+        return;
+    }
+
+    currentComputingSimulationName = newSimulationName;
+    currentActiveWorkerId = response.workerId;
+
+    document.getElementById("computeProgressBar-progress").style.width = "0%";
+
+    document.getElementById("computeProgress").classList.remove("hidden");
+    document.getElementById("stopComputingButton").classList.remove("hidden");
+    document.getElementById("computeNewSimulationButton").classList.add("hidden");
+    document.getElementById("simulationConfigs").classList.add("hidden");
+    
+    progressUpdateInterval = 100;
+    lastProgress = 0;
+    start_t = Date.now();
+    currentProgressTimeout = setTimeout(updateComputingProgress, progressUpdateInterval);
+}
+
+function validateSimulaitonConfigEntrys() {
+    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const deltaT_inp = document.getElementById("deltaT");
+    const deltaT = parseFloat(deltaT_inp.value);
+    if (isNaN(deltaT) || deltaT <= 0) {
+        errorMessageDiv.textContent = "Delta time must be a positive non-zero float";
+        return false;
+    }
+
+    const noOfFrames_inp = document.getElementById("noOfFrames");
+    const noOfFrames = parseInt(noOfFrames_inp.value);
+    if (isNaN(noOfFrames) || noOfFrames <= 0) {
+        errorMessageDiv.textContent = "Number of frames must be a positive non-zero integer";
+        return false;
+    }
+
+    return true;
+}
+
+document.getElementById("deltaT").addEventListener("input", validateSimulaitonConfigEntrys);
+document.getElementById("noOfFrames").addEventListener("input", validateSimulaitonConfigEntrys);
+
+document.getElementById("stopComputingButton").addEventListener("pointerdown", stopComputingSimulation);
+
+function handleLeavePage (event) {
+    if (unsavedChanges) {
+        return "You have unsaved changes. If you leave now, your changes will be lost. Are you sure you want to leave?";
+    } 
+    else if (currentActiveWorkerId !== null) {
+        return "You have a simulating being computed. If you leave now, the current active worker will be orphaned. Are you sure you want to leave?";
+    }
+}
+
+window.onbeforeunload = handleLeavePage;
+
+
+async function setupWorkbench() {
+    const response = await communicator.loginFromSessionStorage();
+    if (response.status === "ERR") {
+        //console.error("Automatic login failed");
+        location.href = "login.html";
+        return;
+    }
+
+    loadData();
+}
+
+setupWorkbench();

@@ -17,7 +17,7 @@ async function handleSignup(event) {
     }
     const emailResponse = await communicator.validateEmail(email);
     if (emailResponse.status !== "OK") {
-        console.log("Email validation failed:", emailResponse.message);
+        //console.error("Email validation failed:", emailResponse.message);
         errorMessageDiv.textContent = emailResponse.message;  
         return;
     }
@@ -48,13 +48,11 @@ async function handleSignup(event) {
 
     const signupResponse = await communicator.signup(username, password1, email);
     if (signupResponse.status === "OK") {
-        console.log("Signup successful!");
-
         await communicator.logout();
         window.location.href = "login.html";
     } 
     else {
-        console.log("Signup failed:", signupResponse.message);
+        //console.error("Signup failed:", signupResponse.message);
         errorMessageDiv.textContent = signupResponse.message;
     }
 }

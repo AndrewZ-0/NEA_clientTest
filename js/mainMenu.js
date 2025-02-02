@@ -2,17 +2,28 @@ import {communicator} from "./communicator.js";
 
 
 async function handleLogin() {
+    const response = await communicator.loginFromCookies();
+    
+    if (response.status === "OK" && response.certFound) {
+        window.location.href = "projectDashboard.html";
+    }
+    else {
+        window.location.href = "login.html";
+    }
+
+
+    /*
     const response = await communicator.getCertificateFromCookies();
 
     if (response.status !== "OK") {
-        console.log(response.message);
+        console.error(response.message);
         return;
     }
 
     const certificate = response.certificate;
 
     if (certificate) {
-        console.log("user is already logged in with certificate:", certificate);
+        //console.log("user is already logged in with certificate:", certificate);
         
         //check if certificate is valid
         const response = await communicator.validateCertificate(certificate);
@@ -22,13 +33,13 @@ async function handleLogin() {
             window.location.href = "projectDashboard.html";
         } 
         else {
-            console.log("invalid certificate:", response.message);
+            console.error("invalid certificate:", response.message);
         }
     } 
     else {
-        console.log("no certificate found");
+        console.error("no certificate found");
         window.location.href = "login.html";
-    }
+    }*/
 }
 
 

@@ -6,21 +6,22 @@ export class Line extends RenderObject {
 
         this.dir = dir; //[dx, dy, dz] dir vec
         this.colour = colour;
-        this.length = 10000; //arbitrary length in each direction
+        this.length = 100000; //arbitrary length in each direction
+        //im tired of people trying to reach the end of the axis. so have fun (*cough *cough Mr King *cough *cough Moses)
     }
 
     getVertecies() {
-        //calc two points in the dir vec from the origin, at +/- length
+        //calc two points in the dir vec from the origin, at +/- length / 2
         const a = {
-            x: this.x - this.length * this.dir[0], 
-            y: this.y - this.length * this.dir[1], 
-            z: this.z - this.length * this.dir[2]
+            x: this.x - this.length / 2 * this.dir[0], 
+            y: this.y - this.length / 2 * this.dir[1], 
+            z: this.z - this.length / 2 * this.dir[2]
         };
 
         const b = {
-            x: this.x + this.length * this.dir[0], 
-            y: this.y + this.length * this.dir[1], 
-            z: this.z + this.length * this.dir[2]
+            x: this.x + this.length / 2 * this.dir[0], 
+            y: this.y + this.length / 2 * this.dir[1], 
+            z: this.z + this.length / 2 * this.dir[2]
         };
 
         return {a, b};

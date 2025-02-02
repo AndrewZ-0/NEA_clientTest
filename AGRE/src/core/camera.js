@@ -15,7 +15,7 @@ class Camera {
     constructor() {
         this.fov = 45;
         this.near = 0.01;
-        this.far = 1000;
+        this.far = 100000; 
 
         this.cameraSpeed = 6;
 

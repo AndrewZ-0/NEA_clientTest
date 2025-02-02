@@ -57,7 +57,7 @@
 
 .project-card img {
     border: 1px solid #ccc;
-    height: 180px;
+    max-height: 180px;
     max-width: 100%;
     margin-bottom: 10px;
     border-radius: 4px;
@@ -171,16 +171,14 @@
 #renameProject {
     width: 35px; 
     height: 35px; 
-    text-decoration: underline; 
-    font-size: 25px; 
     background-color: #f9f9f9;
 }
 
 #deleteProject {
     width: 35px; 
     height: 35px; 
-    font-size: 25px; 
     background-color: #f9f9f9;
+
 }
 
 

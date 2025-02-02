@@ -13,14 +13,14 @@
     <body>
         <div id = "titlebar">
             <div id = "projectLevelMenu-left">
-                <button id = "titleBarReturnButton-workbench">〱</button>
+                <button id = "titleBarReturnButton"><img src = "assets/arrowButtonIcon.svg"/></button>
                 <label id = "titlebar-project-name"></label>
-                <button id = "saveProjectButton" style = "position: relative;">💾<span class = "badge hidden"></span></button>
+                <button id = "saveProjectButton" style = "position: relative;"><img src = "assets/saveButtonIcon.svg"/><span class = "badge hidden"></span></button>
             </div>
 
             <div id = "projectLevelMenu-right">
-                <button id = "playButton">▶️</button>
-                <button id = "settingsButton">⚙️</button>
+                <button id = "playButton"><img src = "assets/playButton.svg"/></button>
+                <button id = "settingsButton"><img src = "assets/settingsMenuIcon.svg"/></button>
             </div>
         </div>
 
@@ -80,8 +80,9 @@
         </div>
 
         <div id = "toolsMenu" class = "tab-content hidden">
-            <button id = "openCreateObjectMenu-button">createObj</button> <!--brings up create object menu to right-->
-            <button id = "deleteObject-button">deleteObj</button> <!--delete selection-->
+            <button id = "openCreateObjectMenu-button">Create Object</button> <!--brings up create object menu to right-->
+            <button id = "deleteObject-button">Delete Object</button> <!--delete selection-->
+            <button id = "findObject-button">Find Object</button> <!--find object (useful for finding lost objects)-->
         </div>
         <div id = "modelsMenu" class = "tab-content hidden">
             <!--models-->
@@ -98,14 +99,14 @@
 
         <div id = "createObject-overlay" class = "hidden">
             <button id = "hide-createObject-overlay-button">ㄨ</button>
-            <div class = "overlay-content">
+            <div class = "overlay-content" style = "width: 30%; min-width: 300px; max-width: 600px;">
                 <h2>Create Object</h2>
 
                 <div class = "form-container">
                     <form onsubmit = "return false;">
                         <div class = "input-group">
                             <label for = "objectName" style = "height: 20px; width: 105px; text-align: left;">Object Name</label>
-                            <input type = "text" id = "objectName" name = "objectName" style = "width: 124px; height: 20px;" value = "Unnamed" required>
+                            <input type = "text" id = "objectName" name = "objectName" style = "width: 124px; height: 20px;" required>
                         </div>
 
                         <div class = "input-group">
@@ -160,7 +161,12 @@
 
                         <div class = "input-group">
                             <label style = "height: 20px; width: 105px; text-align: left;">Radius</label>
-                            <input type = "number" id = "radius" name = "radius" class = "numInpBox" value = "1" min = "0.001" step = "1" required>
+                            <input type = "number" id = "radius" name = "radius" class = "numInpBox" value = "1" min = "0.1" step = "0.1" required>
+                        </div>
+
+                        <div class = "input-group">
+                            <label style = "height: 20px; width: 105px; text-align: left;">Mass</label>
+                            <input type = "number" id = "mass" name = "mass" class = "numInpBox" value = "1" min = "0.1" step = "0.1" required>
                         </div>
 
                         <div class = "input-group" style = "margin-bottom: 20px;">
@@ -170,15 +176,62 @@
 
                         <div id = "createObject-error-message" class = "error-message"></div>
 
-                        <button id = "createObject-button">Create</button>
+                        <button id = "createObject-button" type = "button">Create</button>
                     </form>
                 </div>
             </div>
         </div>
 
+        <div id = "playSimulationMenu-overlay" class = "hidden">
+            <button id = "hide-playSimulationMenu-overlay-button">ㄨ</button>
+            <div class = "overlay-content" style = "width: 40%; min-width: 400px; max-width: 800px;">
+                <h2>Simulations</h2>
+                <select id = "simulationList" name = "Simulations" size = "5"></select>
+                <div id = "simulationListActions" style = "justify-content: center;">
+                    <button id = "openSimulation" style = "width: 80px; height: 20px; font-size: 15px;">Open</button>
+                    <button id = "deleteSimulation" style = "width: 80px; height: 20px; font-size: 15px;">Delete</button>
+                    <button id = "renameSimulation" style = "width: 80px; height: 20px; font-size: 15px;">Rename</button>
+                </div>
+                <div id = "simulationComputingActions" style = "justify-content: center;">
+                    <button id = "computeNewSimulationButton" style = "width: 150px; height: 20px; font-size: 15px;">Compute New</button>
+                    <button id = "stopComputingButton" style = "width: 150px; height: 20px; font-size: 15px;" class = "hidden">Stop Computing</button>
+                </div>
+                <div id = "computeProgress" style = "align-items: center; flex-direction: column;" class = "hidden">
+                    <div id = "computeProgressBar">
+                        <div id = "computeProgressBar-progress"></div>
+                    </div>
+
+                    <div id = "computeProgress-labels" style = "gap: 5px;">
+                        <label id = "computingInProgress-label" style = "align-self: left;">Computing...</label>
+                        <label id = "computeProgressText" style = "align-self: left;"></label>
+                        
+                        <label id = "compute-approximateWaitTime" style = "align-self: right;"></label>
+                    </div>
+                </div>
+
+                <div id = "simulationConfigs" style = "justify-content: center;">
+                    <div class = "form-container" style = "padding-top: 0; padding-bottom: 15px; flex-grow: 1; width: 100%;">
+                        <form onsubmit = "return false;">
+                            <div class = "input-group">
+                                <label style = "height: 20px; width: 100%; text-align: left;">Delta Time</label>
+                                <input type = "number" id = "deltaT" name = "deltaT" class = "numInpBox" value = "0.01" step = "0.01" required>
+                            </div>
+
+                            <div class = "input-group">
+                                <label style = "height: 20px; width: 100%; text-align: left;">Number of Frames</label>
+                                <input type = "number" id = "noOfFrames" name = "noOfFrames" class = "numInpBox" value = "100" step = "1" required>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div id = "simulationMenu-error-message" class = "error-message" style = "margin-top: 10px;"></div>
+            </div>
+        </div>
+
         <div id = "workbenchDataMenu" class = "hidden">
-            <h2>Object Data</h2>
-            <button id = "exitObjectDataMenu-button" style = "position: absolute; top: 10px; right: 10px;">ㄨ</button>
+            <h2 style = "text-align: center;">Object Data</h2>
+            <button id = "exitObjectDataMenu-button" style = "position: absolute; top: 0; right: 0;">ㄨ</button>
             <div class = "form-container">
                 <form onsubmit = "return false;">
                     <div class = "input-group">
@@ -235,7 +288,12 @@
 
                     <div class = "input-group">
                         <label style = "height: 20px; width: 105px; text-align: left;">Radius</label>
-                        <input type = "number" id = "edit-radius" name = "edit-radius" class = "numInpBox" value = "1" min = "0.1" step = "0.1" required>
+                        <input type = "number" id = "edit-radius" name = "edit-radius" class = "numInpBox" value = "1" step = "0.1" required>
+                    </div>
+
+                    <div class = "input-group">
+                        <label style = "height: 20px; width: 105px; text-align: left;">Mass</label>
+                        <input type = "number" id = "edit-mass" name = "edit-mass" class = "numInpBox" value = "1" step = "0.1" required>
                     </div>
 
                     <div class = "input-group" style = "margin-bottom: 20px;">

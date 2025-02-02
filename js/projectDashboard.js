@@ -48,7 +48,6 @@ async function createNewProject(event) {
     event?.preventDefault();  //stop default js form features
 
     const projectName = document.getElementById("project-name").value.trim();
-    const certificate = sessionStorage.getItem("certificate");
     const filePath = `./projects/${projectName}`;
     const errorMessageDiv = document.getElementById("new-project-error-message");
 
@@ -59,15 +58,14 @@ async function createNewProject(event) {
         return;
     }
 
-    const response = await communicator.create_project(certificate, projectName, filePath);
+    const response = await communicator.create_project(projectName, filePath);
 
     if (response.status !== "OK") {
-        console.log("Failed to create project:", response.message);
+        console.error("Failed to create project:", response.message);
         errorMessageDiv.textContent = response.message;
         return;
     }
 
-    //alert("New Project Created!"); //kinda don't need this
     hideNewProjectOverlay();
     //loadProjectCards(); //reload all project cards to include the new ones
     openProjectWorkbench(projectName);
@@ -79,24 +77,23 @@ async function deleteProject(event) {
     const confirmation = confirm("Are you sure you want to delete this project?");
     if (confirmation) {
         const projectName = focusedCard.querySelector(".project-name").textContent;
-        const certificate = sessionStorage.getItem("certificate");
 
-        const response = await communicator.delete_project(certificate, projectName);
+        const response = await communicator.delete_project(projectName);
 
         if (response.status !== "OK") {
-            console.log("Failed to delete project:", response.message);
-            alert(`Failed to delete project: ${response.message}`);
+            console.error("Failed to delete project:", response.message);
+            //alert(`Failed to delete project: ${response.message}`);
             return;
         }
 
-        //alert("Project deleted!");
         loadProjectCards();
         document.getElementById("renameProject").disabled = true;
         document.getElementById("deleteProject").disabled = true;
+
+        document.getElementById("deleteProject").removeEventListener("pointerdown", deleteProject);
+        document.getElementById("renameProject").removeEventListener("pointerdown", showRenameProjectOverlay);
     }
 }
-
-document.getElementById("deleteProject").addEventListener("pointerdown", deleteProject);
 
 function showRenameProjectOverlay(event) {
     document.getElementById("rename-project-overlay").classList.remove("hidden");
@@ -106,7 +103,7 @@ function showRenameProjectOverlay(event) {
 
 function hideRenameProjectOverlay(event) {
     document.getElementById("rename-project-overlay").classList.add("hidden");
-    document.getElementById("rename-project-error-message").innerHTML = ""; //clear in case the overlay is closed, then opened again
+    document.getElementById("rename-project-error-message").replaceChildren(); //clear in case the overlay is closed, then opened again
     document.removeEventListener("keydown", renameProjectScreenKeyEvents);
     document.addEventListener("keydown", dashboardKeyEvents);
 }
@@ -117,7 +114,6 @@ async function renameProject(event) {
     event?.preventDefault();  //stop default js form features
 
     const newProjectName = document.getElementById("new-project-name").value.trim();
-    const certificate = sessionStorage.getItem("certificate");
     const oldProjectName = focusedCard.querySelector(".project-name").textContent;
     const errorMessageDiv = document.getElementById("rename-project-error-message");
 
@@ -128,22 +124,20 @@ async function renameProject(event) {
         return;
     }
 
-    const response = await communicator.rename_project(certificate, oldProjectName, newProjectName);
+    const response = await communicator.rename_project(oldProjectName, newProjectName);
 
     if (response.status !== "OK") {
-        console.log("Failed to rename project:", response.message);
+        console.error("Failed to rename project:", response.message);
         errorMessageDiv.textContent = response.message;
         return;
     }
 
-    //alert("Project Renamed!");
     hideRenameProjectOverlay();
     loadProjectCards(); //reload all project cards to include the renamed ones
 }
 
 document.getElementById("rename-project-button").addEventListener("pointerdown", renameProject);
 
-document.getElementById("renameProject").addEventListener("pointerdown", showRenameProjectOverlay);
 
 function dashboardKeyEvents(event) {
     const newProjectOverlayVisible = !document.getElementById("new-project-overlay").classList.contains("hidden");
@@ -178,6 +172,8 @@ function dashboardKeyEvents(event) {
             document.getElementById("renameProject").disabled = true;
             document.getElementById("deleteProject").disabled = true;
 
+            document.getElementById("deleteProject").removeEventListener("pointerdown", deleteProject);
+            document.getElementById("renameProject").removeEventListener("pointerdown", showRenameProjectOverlay);
         }
         focusedCard = null;
     } 
@@ -220,24 +216,23 @@ function handleSelectProjectCard(event) {
         if (target.classList.contains("project-card")) {
             document.getElementById("renameProject").disabled = false;
             document.getElementById("deleteProject").disabled = false;
+
+            document.getElementById("deleteProject").addEventListener("pointerdown", deleteProject);
+            document.getElementById("renameProject").addEventListener("pointerdown", showRenameProjectOverlay);
         } 
         else {
             document.getElementById("renameProject").disabled = true;
             document.getElementById("deleteProject").disabled = true;
+
+            document.getElementById("deleteProject").removeEventListener("pointerdown", deleteProject);
+            document.getElementById("renameProject").removeEventListener("pointerdown", showRenameProjectOverlay);
         }
     }
 }
 
 async function openProjectWorkbench(projectName) {
-    const certificate = sessionStorage.getItem("certificate");
-    if (!certificate) {
-        console.log("No certificate found");
-        location.href = "login.html";
-        return;
-    }
-
-    await communicator.updateAccessProjectTime(certificate, projectName);
-    window.location.href = `projectWorkbench.html?projectName=${projectName}`;
+    await communicator.updateAccessProjectTime(projectName);
+    window.location.href = `projectWorkbench.html?project=${projectName}`;
 }
 
 //obllitory merge sort reference
@@ -281,18 +276,10 @@ function mergeSortProjCardsByLastAccessed(projs, keys) {
 
 
 async function loadProjectCards() {
-    const certificate = sessionStorage.getItem("certificate");
-    if (!certificate) {
-        console.log("No certificate found");
-        location.href = "login.html";
-        return;
-    }
-
-    const response = await communicator.listProjects(certificate);
+    const response = await communicator.listProjects();
     if (response.status !== "OK") {
-        console.log("Failed to load projects:", response.message);
-
-        alert(response.message);
+        console.error("Failed to load projects:", response.message);
+        //alert(response.message);
         return;
     }
 
@@ -301,15 +288,15 @@ async function loadProjectCards() {
     const projectCardsContainer = document.getElementById("projectCardsContainer");
     const newProjectCard = document.querySelector(".new-project-card"); //save for to put at the end
     
-    projectCardsContainer.innerHTML = ""; //clear to reload all cards
+    projectCardsContainer.replaceChildren(); //clear to reload all cards
 
     let projects = {};
 
     for (let i = 0; i < projectNames.length; i++) {
-        const projectResponse = await communicator.fetchData("get_projectData", {certificate, projectName: projectNames[i]}); 
+        const projectResponse = await communicator.getProjectData(projectNames[i]); 
         
         if (projectResponse.status !== "OK") {
-            console.log("Failed to load project data:", projectResponse.message);
+            console.error("Failed to load project data:", projectResponse.message);
             return;
         }
         
@@ -327,10 +314,10 @@ async function loadProjectCards() {
         projectCard.tabIndex = 0;
         projectCard.addEventListener("pointerdown", handleSelectProjectCard);
 
-        const imgResponse = await communicator.getProjectScreenshot(certificate, projectName);
+        const imgResponse = await communicator.getProjectScreenshot(projectName);
 
         if (imgResponse.status !== "OK") {
-            console.log("Failed to load project screenshot:", imgResponse.message);
+            console.error("Failed to load project screenshot:", imgResponse.message);
             return;
         }
 
@@ -361,18 +348,27 @@ async function loadProjectCards() {
     projectCardsContainer.appendChild(newProjectCard);
 }
 
+async function setupDashboard() {
+    const response = await communicator.loginFromSessionStorage();
+    if (response.status === "ERR") {
+        //console.error("Automatic login failed");
+        location.href = "login.html";
+        return;
+    }
 
-
-const newProjectCards = document.querySelectorAll(".new-project-card");
+    const newProjectCards = document.querySelectorAll(".new-project-card");
     
-for (const newProjectCard of newProjectCards) {
-    newProjectCard.addEventListener("pointerdown", handleSelectProjectCard)
+    for (const newProjectCard of newProjectCards) {
+        newProjectCard.addEventListener("pointerdown", handleSelectProjectCard)
+    }
+
+    loadProjectCards();
 }
 
-loadProjectCards();
+setupDashboard();
+
 
 //if focus is on when reloading, ensure buttons are kept disabled
 document.getElementById("renameProject").disabled = true;
 document.getElementById("deleteProject").disabled = true;
 
-document.addEventListener("keydown", dashboardKeyEvents);

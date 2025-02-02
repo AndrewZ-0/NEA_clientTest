@@ -7,6 +7,11 @@ import {
 } from "./overlays.js";
 
 
+let moveObjects = false;
+export function set_moveObjectsStatus(status) {
+    moveObjects = status;
+}
+
 export let keys = {
     w: false,
     a: false,
@@ -232,20 +237,22 @@ export function bindVisabilityChange(lambda) {
 
 export let selectionMovementAxis = null;
 function toggleSelectionMovement(axis) {
-    if (masterRenderer.currentSelection !== null) {
-        if (selectionMovementAxis === axis) {
+    if (moveObjects) {
+        if (masterRenderer.currentSelection !== null) {
+            if (selectionMovementAxis === axis) {
+                selectionMovementAxis = null;
+            }
+            else {
+                selectionMovementAxis = axis;
+            }
+            updateSelectionMovementOverlay(selectionMovementAxis);
+            axisRenderer.updateFlag = true;
+        }
+        else if (axis === null) {
             selectionMovementAxis = null;
+            updateSelectionMovementOverlay(selectionMovementAxis);
+            axisRenderer.updateFlag = true;
         }
-        else {
-            selectionMovementAxis = axis;
-        }
-        updateSelectionMovementOverlay(selectionMovementAxis);
-        axisRenderer.updateFlag = true;
-    }
-    else if (axis === null) {
-        selectionMovementAxis = null;
-        updateSelectionMovementOverlay(selectionMovementAxis);
-        axisRenderer.updateFlag = true;
     }
 }
 
@@ -254,3 +261,4 @@ export function quickReleaseKeys() {
         keys[key] = false;
     }
 }
+

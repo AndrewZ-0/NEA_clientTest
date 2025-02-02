@@ -21,27 +21,22 @@ async function validateForm(event) {
 
     errorMessageDiv.textContent = ""; //clear prev msgs
 
-    let errors = [];
-
     if (!username.trim()) {
-        errors.push("Username is required.");
+        errorMessageDiv.textContent = "Username is required";
+        return;
     }
     if (!password.trim()) {
-        errors.push("Password is required.");
+        errorMessageDiv.textContent = "Password is required";
+        return;
     }
 
-    if (errors.length > 0) {
-        errorMessageDiv.textContent = errors.join(" ");
-    } 
     else {
-        const response = await communicator.login(username, password, keepSignedIn);
+        const response = await communicator.loginFromCredentials(username, password, keepSignedIn);
         if (response.status === "OK") {
-            sessionStorage.setItem("certificate", response.certificate);
-
             window.location.href = "projectDashboard.html";
         }
         else {
-            console.log("Login failed:", response.message);
+            //console.error("Login failed:", response.message);
             errorMessageDiv.textContent = response.message;
         }
     }

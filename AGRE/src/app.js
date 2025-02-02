@@ -3,15 +3,20 @@ import {axisViewport} from "./core/axisViewPort.js";
 import {masterRenderer, orientationRenderer, axisRenderer} from "./core/renderer.js";
 import {camera} from "./core/camera.js";
 import {updateCameraModeOverlay, updateCameraPerspectiveOverlays, updateFpsOverlay} from "./core/overlays.js";
-import {bindVisabilityChange, bindAllControls, quickReleaseKeys} from "./core/listeners.js";
+import {bindVisabilityChange, bindAllControls, quickReleaseKeys, set_moveObjectsStatus} from "./core/listeners.js";
 import {orientationMenu} from "./core/orientationViewPort.js";
 
 
 export class GraphicsEngine {
-    constructor(objects) {
+    constructor(objects, moveObjects = false) {
         this.canvas = document.getElementById("model-surface");
         this.currentAnimationFrame;
         this.loop;
+
+        this.moveObjects = moveObjects;
+        
+        set_moveObjectsStatus(moveObjects);
+
 
         //get elements from HTML
         this.gl = this.canvas.getContext("webgl2", {antialias: true, preserveDrawingBuffer: true});
@@ -57,7 +62,7 @@ export class GraphicsEngine {
         clock.updateDeltaT();
         updateFpsOverlay();
 
-        this.forceAnimationFrame();
+        this.currentAnimationFrame = requestAnimationFrame(this.mainloop)
     };
 
     start = () => {
