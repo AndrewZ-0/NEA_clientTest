@@ -1,20 +1,72 @@
 import {masterRenderer} from "./renderer.js";
 import * as linearAlgebra from "../utils/linearAlgebra.js";
 import * as spaceTransforms from "../utils/spaceTransforms.js";
+import {Sphere, Plane} from "../objects/objects.js";
 
 
-function objectIntersectsRay(object, rayOrigin, rayDir) {
-    const r = object.getBoundingSphereRadius();
+
+//gigachad vector intersection function: 
+//returns null if no intersection, otherwise returns distance to intersection (min dist for bounding sphere)
+function getIntersection(object, rayOrigin, rayDir) {
+    if (object instanceof Sphere) {
+        const r = object.radius;
+        
+        const h = linearAlgebra.subVec3(object, rayOrigin); //from camera to sphere origin
+
+        const b = 2 * linearAlgebra.dotVec3(rayDir, h);
+        const c = linearAlgebra.dotVec3(h, h) - r * r;
+
+        if (b < c ** 0.5) {
+            return null;
+        }
+
+        const discriminant = b * b - 4 * c;
+
+        const i1 = (-b - (discriminant ** 0.5)) / 2;
+        const i2 = (-b + (discriminant ** 0.5)) / 2;
+
+        const i1b = i1 < 0;
+        const i2b = i1 < 0;
+
+        if (i1b) {
+            if (i2b) {
+                return -Math.max(i1, i2);
+            }
+            return -i1;
+        }
+        else if (i2b) {
+            return -i2;
+        }
+        return null;
     
-    const h = linearAlgebra.subVec3(object, rayOrigin); //from camera to sphere origin
+        //return linearAlgebra.magnitudeVec3(h) - object.getBoundingSphereRadius();
+    }
+    else if (object instanceof Plane) {
+        const n = object.getRotatedNormal();
+        const h = linearAlgebra.subVec3(object, rayOrigin);
 
-    return linearAlgebra.dotVec3(h, rayDir) >= (linearAlgebra.dotVec3(h, h) - r * r) ** 0.5;
-}
+        const lambda = linearAlgebra.dotVec3(h, n) / linearAlgebra.dotVec3(rayDir, n);
 
-function minDist(object, rayOrigin) {
-    const h = linearAlgebra.subVec3(object, rayOrigin);
-    
-    return linearAlgebra.magnitudeVec3(h) - object.getBoundingSphereRadius();
+        //direction check
+        if (lambda <= 0) {
+            return null;
+        }
+
+        const poi = linearAlgebra.addVec3(rayOrigin, linearAlgebra.scaleVec3(rayDir, lambda));
+
+        //convert to coord sys relative to plane point
+        const local_poi = linearAlgebra.subVec3(poi, object);
+        
+        const sx = Math.abs(linearAlgebra.dotVec3(local_poi, object.getRotatedUnitX()));
+        const sz = Math.abs(linearAlgebra.dotVec3(local_poi, object.getRotatedUnitZ()));
+
+        //within bounds of plane check
+        if (sx > object.length / 2 || sz > object.width / 2) {
+            return null;
+        }
+
+        return linearAlgebra.magnitudeVec3(linearAlgebra.subVec3(poi, rayOrigin));
+    }
 }
 
 
@@ -29,15 +81,10 @@ export function raycastMouseCollisionCheck(mouseX, mouseY) {
     let minDistance = Infinity;
 
     for (let i = 0; i < masterRenderer.objects.length; i++) {
-        if (objectIntersectsRay(masterRenderer.objects[i], rayOrigin, rayDir)) {
-            const currentMinDistance = minDist(masterRenderer.objects[i], rayOrigin);
-
-            //console.log(currentMinDistance)
-
-            if (currentMinDistance < minDistance) {
-                selectedObject = masterRenderer.objects[i];
-                minDistance = currentMinDistance;
-            }
+        const currentMinDistance = getIntersection(masterRenderer.objects[i], rayOrigin, rayDir);
+        if (currentMinDistance && currentMinDistance < minDistance) {
+            selectedObject = masterRenderer.objects[i];
+            minDistance = currentMinDistance;
         }
     }
 
@@ -53,6 +100,7 @@ export function raycastMouseCollisionCheck(mouseX, mouseY) {
         console.log('No object selected');
     }
     */
-    masterRenderer.handleSelection(i);
+
+    return i;
 }
 

@@ -1,4 +1,4 @@
-const FPS = 60; //annoyingly, webgl does not support changing fps so I'm kinda stuck with this now
+export const FPS = 60; //annoyingly, webgl does not support changing fps so I'm kinda stuck with this now
 
 class Clock {
     constructor() {

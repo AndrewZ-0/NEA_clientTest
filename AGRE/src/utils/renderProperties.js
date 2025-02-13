@@ -1,5 +1,5 @@
-export const nodeResolution = 15;
+export const nodeResolution = 40;
 
 export function calculateScaledFidelity(radius) {
-    return Math.floor(Math.log2(radius + 2) * nodeResolution);
+    return Math.floor(Math.log10(radius + 2) * nodeResolution);
 }

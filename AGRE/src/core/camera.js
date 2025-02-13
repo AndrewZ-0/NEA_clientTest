@@ -108,7 +108,7 @@ class QuaternionCamera extends Camera {
     }
 
     //Beefed up version of euler rotaion approach...
-    onMouseMove(offset) {
+    onPointerDrag(offset) {
         //create a set of axis relative to camera to apply offsets to
         linearAlgebra.applyQuat(this.orientation, linearAlgebra.getAxisAngle(this.up, offset.x * this.sensitivity));  //yaw
         linearAlgebra.applyQuat(this.orientation, linearAlgebra.getAxisAngle(this.right, offset.y * this.sensitivity)); //pitch
@@ -146,6 +146,21 @@ class QuaternionCamera extends Camera {
 
     getOrientationViewMatrix(viewMatrix) {
         linearAlgebra.lookAt(viewMatrix, linearAlgebra.globalOrigin, camera.front, camera.up);
+    }
+
+    setPose(pose) {
+        this.coords = {
+            x: pose.coords.x, 
+            y: pose.coords.y, 
+            z: pose.coords.z
+        };
+
+        this.orientation = {
+            x: pose.orientation.x, 
+            y: pose.orientation.y, 
+            z: pose.orientation.z, 
+            w: pose.orientation.w
+        };
     }
 }
 
@@ -263,7 +278,7 @@ class PolarCamera extends Camera {
         }
     }
 
-    onMouseMove(offset) {
+    onPointerDrag(offset) {
         this.alt -= offset.y * this.sensitivity;
         this.azi += offset.x * this.sensitivity;
 
@@ -298,6 +313,12 @@ class PolarCamera extends Camera {
 
     getOrientationViewMatrix(viewMatrix) {
         linearAlgebra.lookAt(viewMatrix, this.localOrigin, this.front, this.up);
+    }
+
+    setPose(pose) {
+        this.r = pose.r;
+        this.azi = pose.azi;
+        this.alt = pose.alt;
     }
 }
 
@@ -336,6 +357,62 @@ export function toggleCameraMode() {
     updateCameraModeOverlay();
 }
 
+export function setCameraMode(mode) {
+    if (mode != cameraMode) {
+        
+        if (mode === "Y-Polar") {
+            cameraMode = mode;
 
-//export let camera = new CartesianCamera({x: 0, y: 0, z: 6}, {x: 0, y: 0, z: 0, w: 1});
-export let camera = new PolarCamera(6, 0, 0);
+            const r = linearAlgebra.magnitudeVec3(camera.coords);
+
+            camera = new PolarCamera(
+                r, 
+                Math.asin(camera.coords.y / r), 
+                Math.atan2(camera.coords.x, camera.coords.z)
+            );
+            updateCameraModeOverlay();
+        }
+        else if (mode === "Y-Cartesian") {
+            if (cameraMode === "Y-Polar") {
+                camera = new CartesianCamera(
+                    linearAlgebra.coordsfromPolar(camera.r, camera.alt, camera.azi), 
+                    linearAlgebra.quatOrientationFromPolar(camera.alt, camera.azi)
+                );
+            }
+            else { //if from quaternion
+                camera = new CartesianCamera(
+                    camera.coords, 
+                    camera.orientation
+                );
+            }
+
+            cameraMode = mode;
+
+            updateCameraModeOverlay();
+            camera.updateAllOverlays();
+        }
+        else if (mode === "Quaternion") {
+            if (cameraMode === "Y-Polar") {
+                camera = new QuaternionCamera(
+                    linearAlgebra.coordsfromPolar(camera.r, camera.alt, camera.azi), 
+                    linearAlgebra.quatOrientationFromPolar(camera.alt, camera.azi)
+                );
+            }
+            else { //if from cartesian
+                camera = new QuaternionCamera(
+                    camera.coords, 
+                    camera.orientation
+                );
+            }
+
+            cameraMode = mode;
+
+            updateCameraModeOverlay();
+            camera.updateAllOverlays();
+        }
+    }
+}
+
+
+//export let camera = new CartesianCamera({x: 0, y: 0, z: 10}, {x: 0, y: 0, z: 0, w: 1});
+export let camera = new PolarCamera(10, 0, 0);

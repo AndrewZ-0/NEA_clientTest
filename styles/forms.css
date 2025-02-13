@@ -17,7 +17,10 @@
 }
 
 .form-container .input-group {
-    display: flex;
+    margin-top: 20px;
+}
+
+.form-container .permanant-input-group {
     margin-top: 20px;
 }
 
@@ -109,7 +112,7 @@
 
 .input-subgroup .numInpLabel {
     text-align: left;
-    width: 20px; 
+    width: 40px; 
     font-size: 12px; 
     height: 16px; 
     line-height: 20px;

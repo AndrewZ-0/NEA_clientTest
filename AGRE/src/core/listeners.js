@@ -121,13 +121,15 @@ function handleKeyUp(event) {
             masterRenderer.toggleShaderMode();
             break;
         case "c":
-            toggleCameraMode();
-            masterRenderer.camera = camera; //reset camera pointer for master renderer
-            axisRenderer.camera = camera;
-            orientationRenderer.camera = camera;
-            camera.forceUpdateCamera(masterRenderer.matricies.view);
-            camera.forceUpdateCamera(axisRenderer.matricies.view);
-            //camera.forceUpdateCamera(orientationRenderer.matricies.view);
+            if (!event.ctrlKey) {
+                toggleCameraMode();
+                masterRenderer.camera = camera; //reset camera pointer for master renderer
+                axisRenderer.camera = camera;
+                orientationRenderer.camera = camera;
+                camera.forceUpdateCamera(masterRenderer.matricies.view);
+                camera.forceUpdateCamera(axisRenderer.matricies.view);
+                //camera.forceUpdateCamera(orientationRenderer.matricies.view);
+            }
             break;
         default:
             break;
@@ -149,11 +151,13 @@ function nextMouseOffset(event) {
     return {x: xoffset, y: yoffset};
 }
 
+//legacy code
+/*
 function quickUpdateMouseEvents() {
     if (selectionMovementAxis !== null) {
         masterRenderer.moveSelectedObjectAlong(selectionMovementAxis, lastX, lastY);
     }
-}
+}*/
 
 function handleMouseMove(event) {
     if (selectionMovementAxis !== null) {
@@ -170,7 +174,7 @@ function handleMouseMove(event) {
         //get relative change on screen
         const offset = nextMouseOffset(event);
 
-        camera.onMouseMove(offset);
+        camera.onPointerDrag(offset);
     }
 
     updateMousePosOverlays(event.x, event.y);
@@ -184,16 +188,21 @@ function handleMouseButtonDown(event) {
     }
 }
 
+export function selectObject(selectedObject) {
+    masterRenderer.handleSelection(selectedObject);
+
+    toggleSelectionMovement(null);
+    updateSelectedOverlay();
+
+    const objSelectedEvent = new CustomEvent("objectSelected", {detail: masterRenderer.objects[selectedObject]});
+    document.dispatchEvent(objSelectedEvent);
+}
+
 function handleMouseButtonUp(event) {
     if (event.button === 0) {
         if (clickFlag) {
-            raycastMouseCollisionCheck(event.x, event.y);
-            toggleSelectionMovement(null);
-            updateSelectedOverlay();
-
-            const selectedObject = masterRenderer.objects[masterRenderer.currentSelection];
-            const objSelectedEvent = new CustomEvent("objectSelected", {detail: selectedObject});
-            document.dispatchEvent(objSelectedEvent);
+            const selectedObject = raycastMouseCollisionCheck(event.x, event.y);
+            selectObject(selectedObject);
         }
         else {
             clickFlag = true;
@@ -211,11 +220,18 @@ function handleMouseButtonLeave(event) {
 }
 
 
-function bindCameraCallbacks(canvas) {
+export function bindCameraCallbacks(canvas) {
     canvas.addEventListener("pointermove", handleMouseMove);
     canvas.addEventListener("pointerdown", handleMouseButtonDown);
     canvas.addEventListener("pointerup", handleMouseButtonUp);
     canvas.addEventListener("pointerleave", handleMouseButtonLeave);
+}
+
+export function unbindCameraCallbacks(canvas) {
+    canvas.removeEventListener("pointermove", handleMouseMove);
+    canvas.removeEventListener("pointerdown", handleMouseButtonDown);
+    canvas.removeEventListener("pointerup", handleMouseButtonUp);
+    canvas.removeEventListener("pointerleave", handleMouseButtonLeave);
 }
 
 export function bindAllControls(canvas) {

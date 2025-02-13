@@ -13,6 +13,7 @@ export class Sphere extends RenderObject {
         this.vertices = [];
         this.indices = [];
 
+        //y-oriented 3d polar sphere
         for (let latNumber = 0; latNumber <= this.fidelity; latNumber++) {
             const theta = latNumber * Math.PI / this.fidelity; //latitude angle
             const sinTheta = Math.sin(theta);
@@ -28,7 +29,10 @@ export class Sphere extends RenderObject {
                 const zPos = this.radius * sinPhi * sinTheta;
 
                 if (normalsFlag) {
-                    const normal = [xPos, yPos, zPos].map(coord => coord / this.radius);
+                    let normal = [];
+                    for (let i = 0; i < 3; i++) {
+                        normal[i] = [xPos, yPos, zPos][i] / this.radius;
+                    }
                     this.vertices.push(xPos, yPos, zPos, ...normal, ...this.colour);
                 }
                 else {

@@ -235,46 +235,6 @@ async function openProjectWorkbench(projectName) {
     window.location.href = `projectWorkbench.html?project=${projectName}`;
 }
 
-//obllitory merge sort reference
-function mergeSortProjCardsByLastAccessed(projs, keys) {
-    if (keys.length <= 1) {
-        return keys;
-    }
-
-    const middle = Math.floor(keys.length / 2); 
-    const left = mergeSortProjCardsByLastAccessed(projs, keys.slice(0, middle));
-    const right = mergeSortProjCardsByLastAccessed(projs, keys.slice(middle));
-
-    let l_pointer = 0;
-    let r_pointer = 0;
-    let lr_merged = [];
-
-    while (l_pointer < left.length && r_pointer < right.length) {
-        //ugliest line I have written in quite a while...
-        if (new Date(projs[left[l_pointer]].lastAccessed) >= new Date(projs[right[r_pointer]].lastAccessed)) {
-            lr_merged.push(left[l_pointer]);
-            l_pointer++;
-        }
-        else {
-            lr_merged.push(right[r_pointer]);
-            r_pointer++;
-        }
-    }
-
-    while (l_pointer < left.length) {
-        lr_merged.push(left[l_pointer]);
-        l_pointer++;
-    }
-
-    while (r_pointer < right.length) {
-        lr_merged.push(right[r_pointer]);
-        r_pointer++;
-    }
-
-    return lr_merged;
-}
-
-
 async function loadProjectCards() {
     const response = await communicator.listProjects();
     if (response.status !== "OK") {
@@ -300,13 +260,10 @@ async function loadProjectCards() {
             return;
         }
         
-        projects[projectNames[i]] = projectResponse.data;
+        projects[projectNames[i]] = projectResponse.data; //proj names alredy sorted in last accessed order
     }
 
-    //sort by most recently accessed first
-    const sortedProjectNames = mergeSortProjCardsByLastAccessed(projects, Object.keys(projects));
-
-    for (const projectName of sortedProjectNames) {
+    for (const projectName of projectNames) {
         const project = projects[projectName];
 
         const projectCard = document.createElement("div");

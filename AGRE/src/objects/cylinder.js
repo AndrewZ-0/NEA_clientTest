@@ -14,13 +14,16 @@ export class Cylinder extends RenderObject {
         this.vertices = [];
         this.indices = [];
 
-        const { radius, height, fidelity } = this;
+        const {radius, height, fidelity} = this;
 
+
+        //vertecies
         for (let i = 0; i <= fidelity; i++) {
             const theta = i * 2 * Math.PI / fidelity; 
             const cosTheta = Math.cos(theta);
             const sinTheta = Math.sin(theta);
 
+            //top & bottom circular surfaces (using unit circle thingy)
             const topVertex = [radius * cosTheta, height / 2, radius * sinTheta];
             const bottomVertex = [radius * cosTheta, -height / 2, radius * sinTheta];
 
@@ -28,6 +31,8 @@ export class Cylinder extends RenderObject {
             this.vertices.push(...bottomVertex, ...this.colour);
         }
 
+        //indicies
+        //curved surface quads
         for (let i = 0; i < fidelity; i++) {
             const top1 = i * 2;
             const top2 = (i + 1) * 2; 
@@ -38,6 +43,7 @@ export class Cylinder extends RenderObject {
             this.indices.push(top2, bottom1, bottom2);
         }
 
+        //top & bottom faces (radial triangle pattern)
         const topCenterIndex = this.vertices.length / 6; 
         this.vertices.push(0, height / 2, 0, ...this.colour); 
 

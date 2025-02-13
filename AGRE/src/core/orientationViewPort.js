@@ -9,9 +9,9 @@ const objects = [
     new Cylinder("Xander", 0.4, 0, 0, 0, linearAlgebra.halfPi, 0, 0.04, 0.8, 5, [1, 0, 0]), 
     new Cylinder("Yang", 0, 0.4, 0, linearAlgebra.halfPi, 0, 0, 0.04, 0.8, 5, [0, 1, 0]), 
     new Cylinder("Zoey", 0, 0, 0.4, 0, 0, linearAlgebra.halfPi, 0.04, 0.8, 5, [0, 0, 1]), 
-    new Sphere("Andy", 0.8, 0, 0, 0.2, 8, [1, 0, 0]), 
-    new Sphere("Ben", 0, 0.8, 0, 0.2, 8, [0, 1, 0]), 
-    new Sphere("Camilla", 0, 0, 0.8, 0.2, 8, [0, 0, 1])
+    new Sphere("Andy", 0.8, 0, 0, 0.2, 10, [1, 0, 0]), 
+    new Sphere("Ben", 0, 0.8, 0, 0.2, 10, [0, 1, 0]), 
+    new Sphere("Camilla", 0, 0, 0.8, 0.2, 10, [0, 0, 1])
 ];
 
 class OrientationMenu {

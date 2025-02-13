@@ -1,6 +1,6 @@
 class Communicator {
     constructor() {
-        this.ip = "https://192.168.1.131:1234";
+        this.ip = "https://phimo.ddns.net:1234";
 
         //changed the way the communicator handles certificates. Communicator now stores certificate locally.
         //communicator relys on session storage to maintain cert across pages
@@ -189,6 +189,10 @@ class Communicator {
         return await this.submitData("update_accessProjectTime", {projectName}, true);
     }
 
+    async updateAccessSimulationTime(projectName, simulationName) {
+        return await this.submitData("update_accessSimulationTime", {projectName, simulationName}, true);
+    }
+
     async getSimConfig(projectName) {
         return await this.fetchData("get_simConfig", {projectName}, true);
     }
@@ -201,8 +205,8 @@ class Communicator {
         return await this.fetchData("get_certificateCookie", {});
     }
 
-    async updateProjectData(projectName, simConfig, screenshot) {
-        return await this.submitData("update_projectData", {projectName, simConfig, screenshot}, true);
+    async updateProjectData(projectName, simConfig, settingsData, screenshot) {
+        return await this.submitData("update_projectData", {projectName, simConfig, settingsData, screenshot}, true);
     }
 
     //can't use a standardised fetch request since data is not a json
@@ -259,6 +263,10 @@ class Communicator {
 
     async getSimulationData(projectName, simulationName) {
         return await this.fetchData("get_simulationData", {projectName, simulationName}, true)
+    }
+
+    async listSolvers() {
+        return await this.fetchData("list_solvers", {}, true)
     }
 
     async streamSimulationFramesFile(projectName, simulationName) {

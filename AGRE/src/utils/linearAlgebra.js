@@ -18,7 +18,6 @@ export function toRadian(degrees) {
     return degrees * (Math.PI / 180);
 }
 
-//fuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuk
 //Shut up, I totally did not yoink this from wikipedia
 export function pitchFromQuat(q) {
     return Math.atan2(
@@ -445,5 +444,43 @@ export function standardNormaliseVec3(a) {
     ];
 }
 
+
+
+
+
+export function applyMat3(mat, vec) {
+    return {
+        x: mat[0] * vec.x + mat[1] * vec.y + mat[2] * vec.z,
+        y: mat[3] * vec.x + mat[4] * vec.y + mat[5] * vec.z,
+        z: mat[6] * vec.x + mat[7] * vec.y + mat[8] * vec.z
+    };
+}
+
+
+//courtesey of Wikipedia. Again...
+//note to self, if I ever need to use the 3d rotation matrix, it is for the love of God, THE FIRST one on Wikipedia
+//the second one is improper
+export function applyEulerSet(vec, eulerSet) {
+    const cp = Math.cos(eulerSet.pitch);
+    const sp = Math.sin(eulerSet.pitch);
+    const cy = Math.cos(eulerSet.yaw);
+    const sy = Math.sin(eulerSet.yaw);
+    const cr = Math.cos(eulerSet.roll);
+    const sr = Math.sin(eulerSet.roll);
+
+    const rotMat3 = [
+        cy * cp, 
+        cy * sp * sr - sy * cr,
+        cy * sp * cr + sy * sr, 
+        sy * cp, 
+        sy * sp * sr + cy * cr, 
+        sy * sp * cr - cy * sr, 
+        -sp, 
+        cp * sr, 
+        cp * cr
+    ];
+
+    return applyMat3(rotMat3, vec)
+}
 
 //new ------------------------------------------------------------------------------------------

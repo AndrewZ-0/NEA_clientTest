@@ -1,16 +1,31 @@
 import {GraphicsEngine} from "../AGRE/src/app.js";
-import {masterRenderer} from "../AGRE/src/core/renderer.js";
+import {masterRenderer, axisRenderer} from "../AGRE/src/core/renderer.js";
 import {updateSelectedOverlay} from "../AGRE/src/core/overlays.js";
-import {Cube, Cylinder, Sphere, Torus} from "../AGRE/src/objects/objects.js";
+import {Sphere, Plane} from "../AGRE/src/objects/objects.js";
 import {communicator} from "./communicator.js";
-import {bindAllControls, unbindAllKeyControls, quickReleaseKeys} from "../AGRE/src/core/listeners.js";
+import {bindAllControls, unbindAllKeyControls, quickReleaseKeys, selectObject} from "../AGRE/src/core/listeners.js";
 import {calculateScaledFidelity} from "../AGRE/src/utils/renderProperties.js";
-
+import * as linearAlgebra from "../AGRE/src/utils/linearAlgebra.js";
+import {camera, cameraMode, setCameraMode} from "../AGRE/src/core/camera.js";
 
 
 let ge;
-let projectData = {"deltaT": null, "noOfFrames": null, "objects": {}};
-let settingsData = {};
+let projectData = {
+    "deltaT": null, "noOfFrames": null, 
+    "models": {
+        "gravity": {"compute": true, "G": 6.6743015e-11}, 
+        "eForce": {"compute": true, "E0": 8.854187817e-12}, 
+        "mForce": {"compute": true, "M0": 1.2566370612720e-6}, 
+        "collisions": {"compute": true, "e": 1.0}
+    }, 
+    "objects": {}
+};
+let settingsData = {
+    camera: {
+        mode: "Y-Polar", 
+        pose: {r: 10, alt: 0, azi: 0}
+    }
+};
 
 function returnToDashboard(event) {
     location.href = "projectDashboard.html";
@@ -21,8 +36,13 @@ document.getElementById("titleBarReturnButton").addEventListener("pointerdown", 
 function simulationMenuKeyEvents(event) {
     if (event.key === "Escape") {
         const simulationList = document.getElementById("simulationList");
-        simulationList.value = "";
-        updateSimulationButtons();
+        if ( simulationList.value !== "") {
+            simulationList.value = "";
+            updateSimulationButtons();
+        }
+        else {
+            hidePlaySimulationMenu();
+        }
     }
 }
 
@@ -78,6 +98,7 @@ function updateSimulationButtons() {
 }
 
 document.getElementById("simulationList").addEventListener("change", updateSimulationButtons);
+
 
 async function loadSimulations() {
     const projectName = communicator.getProjNameFromUrl();
@@ -137,10 +158,12 @@ async function renameSimulation() {
 
 document.getElementById("computeNewSimulationButton").addEventListener("pointerdown", createAndComputeNewSimulation);
 
-function openSimulation() {
+async function openSimulation() {
     const simulationList = document.getElementById("simulationList");
     const selectedSimulation = simulationList.value;
     const projectName = communicator.getProjNameFromUrl();
+
+    await communicator.updateAccessSimulationTime(projectName, selectedSimulation);
 
     window.location.href = `simulationPlayer.html?project=${projectName}&simulation=${selectedSimulation}`;
 }
@@ -160,34 +183,46 @@ async function loadData() {
     document.getElementById("projectDataMenu-projectName").textContent = projectName;
     document.getElementById("project-creation-date").textContent = projectResponse.data.creationDate;
 
-    if (Object.keys(projectResponse.data.simConfig).length > 0) {
+    if (Object.keys(projectResponse.data.simConfig).length > 0) { //project is not brand new
         projectData = projectResponse.data.simConfig;
+        settingsData = projectResponse.data.settings;
     }
 
-    settingsData = projectResponse.data.settings; //will use this later
     let objects = [];
     for (let objectName in projectData.objects) {
-        if (projectData.objects[objectName]["dtype"] === 0) {
+        if (projectData.objects[objectName].dtype === 0) {
             const obj = projectData.objects[objectName];
 
-            let colour = obj["colour"];
+            const colour = obj.colour;
 
-            const radius = obj["radius"];
+            const radius = obj.radius;
             const fidelity = calculateScaledFidelity(radius);
 
-            objects.push(new Sphere(objectName, ...obj["position"], radius, fidelity, colour)); 
+            objects.push(new Sphere(objectName, ...obj.position, radius, fidelity, colour)); 
+        }
+        else if (projectData.objects[objectName].dtype === 1) {
+            const obj = projectData.objects[objectName];
+
+            const colour = obj.colour;
+
+            objects.push(new Plane(objectName, ...obj.position, ...obj.dimentions, ...obj.orientation, colour)); 
         }
     }
 
     ge = new GraphicsEngine(objects, true);
     ge.start();
+
+    setCameraMode(settingsData.camera.mode);
+    camera.setPose(settingsData.camera.pose);
+
+    camera.forceUpdateCamera(masterRenderer.matricies.view);
+    camera.forceUpdateCamera(axisRenderer.matricies.view);
 }
 
 function showProjectDataMenu() {
     document.getElementById("projectDataMenu").classList.remove("hidden");
     document.getElementById("titlebar-project-name").removeEventListener("pointerdown", showProjectDataMenu);
     document.getElementById("titlebar-project-name").addEventListener("pointerdown", hideProjectDataMenu);
-
 }
 
 function hideProjectDataMenu() {
@@ -236,21 +271,219 @@ document.getElementById("cameraTab").addEventListener("pointerup", () => toggleT
 document.getElementById("shadersTab").addEventListener("pointerup", () => toggleTab("shaders"));
 
 
+function createObjectFromCreateNewObjectEntries() {
+    const name = document.getElementById("create-objectName").value;
+
+    if (name in projectData.objects) {
+        const errorMessageDiv = document.getElementById("create-object-error-message");
+        errorMessageDiv.textContent = "Object name is taken.";
+        return;
+    }
+
+    if (! validateObjectBasedInputs("create-")) {
+        return;
+    }
+
+    let newObject;
+    const objectType = document.getElementById("create-objectType").value;
+    if (objectType === "0") {
+        const position = [
+            parseFloat(document.getElementById("create-position-x").value),
+            parseFloat(document.getElementById("create-position-y").value),
+            parseFloat(document.getElementById("create-position-z").value)
+        ];
+        const velocity = [
+            parseFloat(document.getElementById("create-velocity-x").value),
+            parseFloat(document.getElementById("create-velocity-y").value),
+            parseFloat(document.getElementById("create-velocity-z").value)
+        ];
+
+        const radius = parseFloat(document.getElementById("create-radius").value);
+        const mass = parseFloat(document.getElementById("create-mass").value);
+        const charge = parseFloat(document.getElementById("create-charge").value);
+        const colour = hexToVec3(document.getElementById("create-colour").value);
+
+        const fidelity = calculateScaledFidelity(radius);
+        newObject = new Sphere(name, ...position, radius, fidelity, colour);
+
+        projectData.objects[name] = {
+            dtype: 0,
+            position, velocity,
+            radius, mass, charge, colour
+        };
+    }
+    else if (objectType === "1") {
+        const position = [
+            parseFloat(document.getElementById("create-position-x").value),
+            parseFloat(document.getElementById("create-position-y").value),
+            parseFloat(document.getElementById("create-position-z").value)
+        ];
+
+        const dimentions = [
+            parseFloat(document.getElementById("create-length").value), 
+            parseFloat(document.getElementById("create-width").value)
+        ]
+
+        const orientation = [
+            linearAlgebra.toRadian(parseFloat(document.getElementById("create-pitch").value)), 
+            linearAlgebra.toRadian(parseFloat(document.getElementById("create-yaw").value)), 
+            linearAlgebra.toRadian(parseFloat(document.getElementById("create-roll").value))
+        ]
+
+        const charge = parseFloat(document.getElementById("create-charge").value);
+        const colour = hexToVec3(document.getElementById("create-colour").value);
+
+        newObject = new Plane(name, ...position, ...dimentions, ...orientation, colour);
+
+        projectData.objects[name] = {
+            dtype: 1,
+            position, dimentions, orientation, 
+            charge, colour
+        };
+    }
+
+    masterRenderer.objects.push(newObject);
+    masterRenderer.quickInitialise(masterRenderer.objects);
+    ge.quickAnimationStart();
+
+    markUnsavedChanges("high");
+    hideCreateObjectOverlay();
+}
+
+function configureCreateObjectEntries() {
+    const inputGroups = document.getElementById("createNewObject-form").querySelectorAll(".input-group");
+    for (const inputGroup of inputGroups) {
+        inputGroup.classList.add("hidden");
+    }
+
+    const objectType = document.getElementById("create-objectType").value;
+
+    if (objectType === "0") {
+        document.getElementById("create-position-group").classList.remove("hidden");
+        document.getElementById("create-velocity-group").classList.remove("hidden");
+        document.getElementById("create-radius-group").classList.remove("hidden");
+        document.getElementById("create-mass-group").classList.remove("hidden");
+        document.getElementById("create-charge-group").classList.remove("hidden");
+        document.getElementById("create-colour-group").classList.remove("hidden");
+    }
+    else if (objectType === "1") {
+        document.getElementById("create-position-group").classList.remove("hidden");
+        document.getElementById("create-dimentions-group").classList.remove("hidden");
+        document.getElementById("create-orientation-group").classList.remove("hidden");
+        document.getElementById("create-charge-group").classList.remove("hidden");
+        document.getElementById("create-colour-group").classList.remove("hidden");
+    }
+}
+
+document.getElementById("create-objectType-group").addEventListener("input", configureCreateObjectEntries);
+
 function createObjectOverlayKeyEvents(event) {
     if (event.key === "Escape") {
         hideCreateObjectOverlay();
     } 
     else if (event.key === "Enter") {
-        createObject();
+        createObjectFromCreateNewObjectEntries();
     }
 }
 
-function workbenchKeyEvents(event) {
-    //legacy stuff: backspace used to be here for deleting objects
+let objectClipboard;
+let copyCount = 0;
+function copyObject() {
+    if (masterRenderer.currentSelection !== null) {
+        const objName = masterRenderer.objects[masterRenderer.currentSelection].name;
+        const data = projectData.objects[objName];
+        objectClipboard = structuredClone({name: objName, data});
+        copyCount = 0;
+    }
+    else {
+        objectClipboard = null;
+    }
 }
 
-document.getElementById("createObject-button").addEventListener("pointerup", createObject);
+document.getElementById("copyObject-button").addEventListener("pointerdown", copyObject);
 
+function createObjectFromModelData(name, newObjectModel) {
+    let newObject;
+    if (newObjectModel.dtype === 0) {
+        const radius = newObjectModel.radius;
+        const fidelity = calculateScaledFidelity(radius);
+        newObject = new Sphere(name, ...newObjectModel.position, radius, fidelity, newObjectModel.colour);
+    }
+    else if (newObjectModel.dtype === 1) {
+        newObject = new Plane(
+            name, 
+            ...newObjectModel.position, 
+            ...newObjectModel.dimentions, 
+            ...newObjectModel.orientation, 
+            newObjectModel.colour
+        );
+    }
+
+    projectData.objects[name] = newObjectModel;
+
+    masterRenderer.objects.push(newObject);
+    masterRenderer.quickInitialise(masterRenderer.objects);
+    ge.quickAnimationStart();
+
+    markUnsavedChanges("high");
+    hideCreateObjectOverlay();
+}
+
+function pasteObject() {
+    if (objectClipboard) {
+        const clipboardContents = structuredClone(objectClipboard);
+        const objName = clipboardContents.name;
+        let copiedObject = clipboardContents.data;
+
+        let NewName = objName + "_copy";
+
+        if (NewName in projectData.objects || NewName in projectData.objects) {
+            let i = 2;
+            while (NewName + i in projectData.objects || NewName + i in projectData.objects) {
+                i++;
+            }
+
+            NewName += i;
+        }
+
+        copyCount += 1;
+
+        if (copiedObject.dtype === 0) {
+            copiedObject.position[0] += copiedObject.radius * copyCount * 2;
+            copiedObject.position[1] -= copiedObject.radius * copyCount * 2;
+        }
+
+        else if (copiedObject.dtype === 1) {
+            const o = copiedObject.orientation;
+            const n = linearAlgebra.applyEulerSet({x: 0, y: 1, z: 0}, {pitch: o[0], yaw: o[1], roll: o[2]});
+
+            copiedObject.position[0] -= n.x * copyCount;
+            copiedObject.position[1] -= n.y * copyCount;
+            copiedObject.position[2] -= n.z * copyCount;
+        }
+
+        createObjectFromModelData(NewName, copiedObject);
+    }
+}
+
+document.getElementById("pasteObject-button").addEventListener("pointerdown", pasteObject);
+
+
+function workbenchKeyEvents(event) {
+    if (event.ctrlKey) {
+        if (event.key === "c") {
+            copyObject();
+        }
+        else if (event.key === "v") {
+            pasteObject();
+        }
+    }
+    else if (event.key === "Backspace") {
+        deleteObject();
+    }
+}
+
+document.getElementById("createObject-button").addEventListener("pointerup", createObjectFromCreateNewObjectEntries);
 
 function showCreateObjectOverlay() {
     quickReleaseKeys();
@@ -264,10 +497,10 @@ function showCreateObjectOverlay() {
 }
 
 function hideCreateObjectOverlay() {
-    const errorMessageDiv = document.getElementById("createObject-error-message");
+    const errorMessageDiv = document.getElementById("create-object-error-message");
     errorMessageDiv.textContent = ""; //clear prev msgs
 
-    document.getElementById("objectName").value = "";
+    document.getElementById("create-objectName").value = "";
 
     document.getElementById("createObject-overlay").classList.add("hidden");
     document.removeEventListener("keydown", createObjectOverlayKeyEvents);
@@ -276,6 +509,383 @@ function hideCreateObjectOverlay() {
 
     document.addEventListener("keydown", workbenchKeyEvents);
 }
+
+function findObjectOverlayKeyEvents(event) {
+    if (event.key === "Escape") {
+        const objectsList = document.getElementById("objectsList");
+
+        if (objectsList.value !== "") {
+            objectsList.value = "";
+        }
+        else {
+            hideFindObjectOverlay();
+        }
+    }
+}
+
+
+function showFindObjectOverlay() {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workbenchKeyEvents);
+    document.getElementById("findObject-overlay").classList.remove("hidden");
+    document.addEventListener("keydown", findObjectOverlayKeyEvents);
+
+    loadObjectsToFinderList();
+}
+
+function hideFindObjectOverlay() {
+    const errorMessageDiv = document.getElementById("find-object-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    document.getElementById("findObject-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", findObjectOverlayKeyEvents);
+
+    bindAllControls(ge.canvas);
+
+    document.addEventListener("keydown", workbenchKeyEvents);
+}
+
+document.getElementById("openFindObjectMenu-button").addEventListener("pointerdown", showFindObjectOverlay);
+document.getElementById("hide-findObject-overlay-button").addEventListener("pointerup", hideFindObjectOverlay);
+
+
+async function loadObjectsToFinderList() {
+    const objectList = document.getElementById("objectsList");
+    objectList.replaceChildren();
+
+    for (const [name, value] of Object.entries(projectData.objects)) {
+        const option = document.createElement("option");
+
+        let typeName;
+        if (value.dtype == 0) {
+            typeName = "particle";
+        }
+        else if (value.dtype == 1) {
+            typeName = "plane";
+        }
+
+        let pos = {
+            x: Math.round(value.position[0] * 1000) / 1000,
+            y: Math.round(value.position[1] * 1000) / 1000,
+            z: Math.round(value.position[2] * 1000) / 1000, 
+        }
+
+        if (pos.x !== value.position[0]) {
+            pos.x += "...";
+        }
+        if (pos.y !== value.position[1]) {
+            pos.y += "...";
+        }
+        if (pos.z !== value.position[2]) {
+            pos.z += "...";
+        }
+
+        option.value = name;
+        option.textContent = `${typeName}: ${name} {x: ${pos.x}, y: ${pos.y}, z: ${pos.z}}`;
+        objectList.appendChild(option);
+    }
+}
+
+
+function selectFoundObject() {
+    const objectsList = document.getElementById("objectsList");
+    const selectedObject = objectsList.value;
+
+    if (! selectedObject) {
+        const errorMessageDiv = document.getElementById("find-object-error-message");
+        errorMessageDiv.textContent = "No object selected";
+        return;
+    }
+
+    const noOfObjects = masterRenderer.objects.length;
+    for (let i = 0; i < noOfObjects; i++) {
+        if (masterRenderer.objects[i].name === selectedObject) {
+            if (masterRenderer.currentSelection !== i) {
+                selectObject(i);
+            }
+            break;
+        }
+    }
+
+    hideFindObjectOverlay();
+}
+
+document.getElementById("selectFoundObject-button").addEventListener("pointerup", selectFoundObject)
+
+
+function loadGravitationalConstant() {
+    document.getElementById("gravitationalConstant-input").value = projectData.models.gravity.G;
+}
+
+function gravityMenuOverlayKeyEvents(event) {
+    if (event.key === "Escape") {
+        hideGravityMenuOverlay();
+    }
+}
+
+function showGravityMenuOverlay() {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workbenchKeyEvents);
+    document.getElementById("gravityMenu-overlay").classList.remove("hidden");
+    document.addEventListener("keydown", gravityMenuOverlayKeyEvents);
+
+    loadGravitationalConstant();
+}
+
+function hideGravityMenuOverlay() {
+    const errorMessageDiv = document.getElementById("gravityMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    document.getElementById("gravityMenu-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", gravityMenuOverlayKeyEvents);
+
+    bindAllControls(ge.canvas);
+
+    document.addEventListener("keydown", workbenchKeyEvents);
+}
+
+document.getElementById("openGravityMenu-button").addEventListener("pointerdown", showGravityMenuOverlay);
+document.getElementById("hide-gravityMenu-overlay-button").addEventListener("pointerup", hideGravityMenuOverlay);
+
+
+function setGravitationalConstant() {
+    if (! validateGravitationalConstant()) {
+        return;
+    }
+
+    const G = parseFloat(document.getElementById("gravitationalConstant-input").value);
+
+    projectData.models.gravity.G = G;
+    markUnsavedChanges("high");
+
+    hideGravityMenuOverlay();
+}
+
+function validateGravitationalConstant() {
+    const errorMessageDiv = document.getElementById("gravityMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const G = parseFloat(document.getElementById("gravitationalConstant-input").value);
+
+    if (isNaN(G)) {
+        errorMessageDiv.textContent = "Gravitational constant must be a float";
+        return false;
+    }
+    return true;
+}
+
+document.getElementById("gravitationalConstant-input").addEventListener("input", validateGravitationalConstant);
+document.getElementById("configureGravity-button").addEventListener("pointerup", setGravitationalConstant);
+
+
+
+function loadVacuumPermittivity() {
+    document.getElementById("vacuumPermittivity-input").value = projectData.models.eForce.E0;
+}
+
+function eForceMenuOverlayKeyEvents(event) {
+    if (event.key === "Escape") {
+        hideEForceMenuOverlay();
+    }
+}
+
+function showEForceMenuOverlay() {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workbenchKeyEvents);
+    document.getElementById("eForceMenu-overlay").classList.remove("hidden");
+    document.addEventListener("keydown", eForceMenuOverlayKeyEvents);
+
+    loadVacuumPermittivity();
+}
+
+function hideEForceMenuOverlay() {
+    const errorMessageDiv = document.getElementById("eForceMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    document.getElementById("eForceMenu-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", eForceMenuOverlayKeyEvents);
+
+    bindAllControls(ge.canvas);
+
+    document.addEventListener("keydown", workbenchKeyEvents);
+}
+
+document.getElementById("openEForceMenu-button").addEventListener("pointerdown", showEForceMenuOverlay);
+document.getElementById("hide-eForceMenu-overlay-button").addEventListener("pointerup", hideEForceMenuOverlay);
+
+
+function setVacuumPermittivity() {
+    if (! validateVacuumPermittivity()) {
+        return;
+    }
+
+    const E0 = parseFloat(document.getElementById("vacuumPermittivity-input").value);
+
+    projectData.models.eForce.E0 = E0;
+    markUnsavedChanges("high");
+
+    hideEForceMenuOverlay();
+}
+
+function validateVacuumPermittivity() {
+    const errorMessageDiv = document.getElementById("eForceMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const E0 = parseFloat(document.getElementById("vacuumPermittivity-input").value);
+
+    if (isNaN(E0)) {
+        errorMessageDiv.textContent = "Vacuum permittivity must be a float";
+        return false;
+    }
+    return true;
+}
+
+document.getElementById("vacuumPermittivity-input").addEventListener("input", validateVacuumPermittivity);
+document.getElementById("configureEForce-button").addEventListener("pointerup", setVacuumPermittivity);
+
+
+
+
+function loadVacuumPermeability() {
+    document.getElementById("vacuumPermeability-input").value = projectData.models.mForce.M0;
+}
+
+function mForceMenuOverlayKeyEvents(event) {
+    if (event.key === "Escape") {
+        hideMForceMenuOverlay();
+    }
+}
+
+function showMForceMenuOverlay() {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workbenchKeyEvents);
+    document.getElementById("mForceMenu-overlay").classList.remove("hidden");
+    document.addEventListener("keydown", mForceMenuOverlayKeyEvents);
+
+    loadVacuumPermeability();
+}
+
+function hideMForceMenuOverlay() {
+    const errorMessageDiv = document.getElementById("mForceMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    document.getElementById("mForceMenu-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", mForceMenuOverlayKeyEvents);
+
+    bindAllControls(ge.canvas);
+
+    document.addEventListener("keydown", workbenchKeyEvents);
+}
+
+document.getElementById("openMForceMenu-button").addEventListener("pointerdown", showMForceMenuOverlay);
+document.getElementById("hide-mForceMenu-overlay-button").addEventListener("pointerup", hideMForceMenuOverlay);
+
+
+function setVacuumPermeability() {
+    if (! validateVacuumPermeability()) {
+        return;
+    }
+
+    const M0 = parseFloat(document.getElementById("vacuumPermeability-input").value);
+
+    projectData.models.mForce.M0 = M0;
+    markUnsavedChanges("high");
+
+    hideMForceMenuOverlay();
+}
+
+function validateVacuumPermeability() {
+    const errorMessageDiv = document.getElementById("mForceMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const M0 = parseFloat(document.getElementById("vacuumPermeability-input").value);
+
+    if (isNaN(M0)) {
+        errorMessageDiv.textContent = "Vacuum permeability must be a float";
+        return false;
+    }
+    return true;
+}
+
+document.getElementById("vacuumPermeability-input").addEventListener("input", validateVacuumPermeability);
+document.getElementById("configureMForce-button").addEventListener("pointerup", setVacuumPermeability);
+
+
+function loadCoefficientOfRestitution() {
+    document.getElementById("coefficientOfRestitution-input").value = projectData.models.collisions.e;
+}
+
+function collisionsMenuOverlayKeyEvents(event) {
+    if (event.key === "Escape") {
+        hideCollisionsMenuOverlay();
+    }
+}
+
+function showCollisionsMenuOverlay() {
+    quickReleaseKeys();
+
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workbenchKeyEvents);
+    document.getElementById("collisionsMenu-overlay").classList.remove("hidden");
+    document.addEventListener("keydown", collisionsMenuOverlayKeyEvents);
+
+    loadCoefficientOfRestitution();
+}
+
+function hideCollisionsMenuOverlay() {
+    const errorMessageDiv = document.getElementById("collisionsMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    document.getElementById("collisionsMenu-overlay").classList.add("hidden");
+    document.removeEventListener("keydown", collisionsMenuOverlayKeyEvents);
+
+    bindAllControls(ge.canvas);
+
+    document.addEventListener("keydown", workbenchKeyEvents);
+}
+
+document.getElementById("openCollisionsMenu-button").addEventListener("pointerdown", showCollisionsMenuOverlay);
+document.getElementById("hide-collisionsMenu-overlay-button").addEventListener("pointerup", hideCollisionsMenuOverlay);
+
+
+function setCoefficientOfRestitution() {
+    if (! validateCoefficientOfRestitution()) {
+        return;
+    }
+
+    const e = parseFloat(document.getElementById("coefficientOfRestitution-input").value);
+
+    projectData.models.collisions.e = e;
+    markUnsavedChanges("high");
+
+    hideCollisionsMenuOverlay();
+}
+
+function validateCoefficientOfRestitution() {
+    const errorMessageDiv = document.getElementById("collisionsMenu-error-message");
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const e = parseFloat(document.getElementById("coefficientOfRestitution-input").value);
+
+    if (isNaN(e) || e < 0) {
+        errorMessageDiv.textContent = "Coefficient of restitution constant must be a positive float";
+        return false;
+    }
+    return true;
+}
+
+document.getElementById("coefficientOfRestitution-input").addEventListener("input", validateCoefficientOfRestitution);
+document.getElementById("configureCollisions-button").addEventListener("pointerup", setCoefficientOfRestitution);
+
+
 
 function hexToVec3(colourHex) {
     const r = parseInt(colourHex.slice(1, 3), 16) / 255;
@@ -294,152 +904,60 @@ function vec3ToHex(colourVec3) {
 }
 
 let unsavedChanges = false;
-function markUnsavedChanges() {
+function markUnsavedChanges(priority) {
     if (!unsavedChanges) {
         const badge = document.querySelector("#saveProjectButton .badge");
-        badge.classList.remove("hidden");
-        unsavedChanges = true;
+        badge.classList.remove("hidden", "lowPriority", "highPriority");
+
+        if (priority === "high") {
+            badge.classList.add("highPriority");
+        }
+        else if (priority === "low") {
+            badge.classList.add("lowPriority");
+        }
+
+        unsavedChanges = priority;
+    }
+    else if (priority === "high") {
+        const badge = document.querySelector("#saveProjectButton .badge");
+        badge.classList.remove("hidden", "lowPriority", "highPriority");
+
+        badge.classList.add("highPriority");
+        unsavedChanges = priority;
     }
 }
 function clearUnsavedChanges() {
-    if (unsavedChanges) {
+    if (unsavedChanges !== false) {
         const badge = document.querySelector("#saveProjectButton .badge");
+        badge.classList.remove("lowPriority", "highPriority");
         badge.classList.add("hidden");
         unsavedChanges = false;
     }
 }
 
-function createObject() {
-    const name = document.getElementById("objectName").value;
+document.addEventListener("cameraUpdated", () => {markUnsavedChanges("low")})
 
-    if (name in projectData.objects) {
-        const errorMessageDiv = document.getElementById("createObject-error-message");
-        errorMessageDiv.textContent = "Object name is taken.";
-        return;
-    }
 
-    const objectType = document.getElementById("objectType").value;
-
-    if (! validateCreateObjectEntries()) {
-        return;
-    }
-
-    let newObject;
-    if (objectType === "0") {
-        const position = {
-            x: parseFloat(document.getElementById("position-x").value),
-            y: parseFloat(document.getElementById("position-y").value),
-            z: parseFloat(document.getElementById("position-z").value)
-        };
-        const velocity = {
-            x: parseFloat(document.getElementById("velocity-x").value),
-            y: parseFloat(document.getElementById("velocity-y").value),
-            z: parseFloat(document.getElementById("velocity-z").value)
-        };
-
-        const radius = parseFloat(document.getElementById("radius").value);
-        const mass = parseFloat(document.getElementById("mass").value);
-        const colour = hexToVec3(document.getElementById("colour").value);
-
-        const fidelity = calculateScaledFidelity(radius);
-        newObject = new Sphere(name, position.x, position.y, position.z, radius, fidelity, colour);
-
-        projectData.objects[name] = {
-            dtype: 0,
-            position: [position.x, position.y, position.z],
-            velocity: [velocity.x, velocity.y, velocity.z],
-            radius, mass, colour
-        };
-    } 
-    
-    //plane not implemented yet
-    /*
-    else if (objectType === "1") {
-        newObject = new Plane("newPlane", position.x, position.y, position.z, radius, colour);
-    }*/
-
-    masterRenderer.objects.push(newObject);
-    masterRenderer.quickInitialise(masterRenderer.objects);
-    ge.quickAnimationStart();
-
-    markUnsavedChanges();
-    hideCreateObjectOverlay();
+for (const element of document.getElementsByClassName("create-input")) {
+    element.addEventListener("input", () => validateObjectBasedInputs("create-"));
 }
-
-function validateCreateObjectEntries() {
-    const errorMessageDiv = document.getElementById("createObject-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const name = document.getElementById("objectName").value;
-
-    const nameRegex = /^[a-zA-Z0-9_]+$/;
-    if (!nameRegex.test(name)) {
-        errorMessageDiv.textContent = `Object name (${name}) is invalid. Only characters (A-Z, a-z, _ and 0-9) are allowed`;
-        return;
-    } 
-
-    const axes = ["x", "y", "z"];
-
-    for (const axis of axes) {
-        const val = parseFloat(document.getElementById(`position-${axis}`).value);
-        if (isNaN(val)) {
-            errorMessageDiv.textContent = `Position (${axis}) value must be a float.`;
-            return false;
-        }
-    }
-
-    for (const axis of axes) {
-        const val = parseFloat(document.getElementById(`velocity-${axis}`).value);
-        if (isNaN(val)) {
-            errorMessageDiv.textContent = `Velocity (${axis}) value must be a float.`;
-            return false;
-        }
-    }
-
-    const radius = parseFloat(document.getElementById("radius").value);
-    if (isNaN(radius) || radius <= 0) {
-        errorMessageDiv.textContent = "Radius must be a non-zero positive integer.";
-        return false;
-    }
-
-    const mass = parseFloat(document.getElementById("mass").value);
-    if (isNaN(mass) || mass <= 0) {
-        errorMessageDiv.textContent = "Mass must be a non-zero positive integer.";
-        return false;
-    }
-
-    return true;
-}
-
-document.getElementById("objectName").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("position-x").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("position-y").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("position-z").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("velocity-x").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("velocity-y").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("velocity-z").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("radius").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("mass").addEventListener("input", validateCreateObjectEntries);
-document.getElementById("colour").addEventListener("input", validateCreateObjectEntries);
-
-
 
 function fillObjectNameOnCreateObjectOverlay() {
-    const currName = document.getElementById("objectName").value;
+    const currName = document.getElementById("create-objectName").value;
 
     if (currName === "") {
-        let NewName = "Unnamed";
+        let newName = "Unnamed";
 
-        if (NewName in projectData.objects || NewName.toLowerCase() in projectData.objects) {
+        if (newName in projectData.objects || newName.toLowerCase() in projectData.objects) {
             let i = 2;
-            while (NewName + i in projectData.objects || NewName.toLowerCase() + i in projectData.objects) {
+            while (newName + i in projectData.objects || newName.toLowerCase() + i in projectData.objects) {
                 i++;
             }
 
-            NewName += i;
+            newName += i;
         }
 
-        document.getElementById("objectName").value = NewName;
+        document.getElementById("create-objectName").value = newName;
     }
     
 }
@@ -458,7 +976,7 @@ function deleteObject() {
         ge.quickAnimationStart();
 
         updateSelectedOverlay();
-        markUnsavedChanges();
+        markUnsavedChanges("high");
     }
 }
 
@@ -469,122 +987,267 @@ function recordObjectMovement(event) {
 
     populateObjectDataForm(movedObject);
 
-    markUnsavedChanges();
+    markUnsavedChanges("high");
 }
 
 function populateObjectDataForm(object) {
-    const errorMessageDiv = document.getElementById("editObject-error-message");
+    const errorMessageDiv = document.getElementById("edit-object-error-message");
     errorMessageDiv.textContent = "";
     document.getElementById("edit-objectName").value = object.name;
     
     let dtype;
-    if (projectData.objects[object.name].dtype === 0) {
+    const objectType = projectData.objects[object.name].dtype;
+    if (objectType === 0) {
         dtype = "Particle";
+
+        document.getElementById("edit-position-x").value = object.x;
+        document.getElementById("edit-position-y").value = object.y;
+        document.getElementById("edit-position-z").value = object.z;
+        document.getElementById("edit-velocity-x").value = projectData.objects[object.name].velocity[0];
+        document.getElementById("edit-velocity-y").value = projectData.objects[object.name].velocity[1];
+        document.getElementById("edit-velocity-z").value = projectData.objects[object.name].velocity[2];
+        document.getElementById("edit-radius").value = projectData.objects[object.name].radius;
+        document.getElementById("edit-mass").value = projectData.objects[object.name].mass;
+        document.getElementById("edit-charge").value = projectData.objects[object.name].charge;
+        document.getElementById("edit-colour").value = vec3ToHex(projectData.objects[object.name].colour);
     }
-    else {
+    else if (objectType === 1) {
         dtype = "Plane"
+
+        document.getElementById("edit-position-x").value = object.x;
+        document.getElementById("edit-position-y").value = object.y;
+        document.getElementById("edit-position-z").value = object.z;
+        document.getElementById("edit-length").value = projectData.objects[object.name].dimentions[0];
+        document.getElementById("edit-width").value = projectData.objects[object.name].dimentions[1];
+        document.getElementById("edit-pitch").value = linearAlgebra.toDegree(projectData.objects[object.name].orientation[0]);
+        document.getElementById("edit-yaw").value = linearAlgebra.toDegree(projectData.objects[object.name].orientation[1]);
+        document.getElementById("edit-roll").value = linearAlgebra.toDegree(projectData.objects[object.name].orientation[2]);
+        document.getElementById("edit-charge").value = projectData.objects[object.name].charge;
+        document.getElementById("edit-colour").value = vec3ToHex(projectData.objects[object.name].colour);
     }
     document.getElementById("edit-objectType").value = dtype;
-
-    document.getElementById("edit-position-x").value = object.x;
-    document.getElementById("edit-position-y").value = object.y;
-    document.getElementById("edit-position-z").value = object.z;
-    document.getElementById("edit-velocity-x").value = projectData.objects[object.name].velocity[0];
-    document.getElementById("edit-velocity-y").value = projectData.objects[object.name].velocity[1];
-    document.getElementById("edit-velocity-z").value = projectData.objects[object.name].velocity[2];
-    document.getElementById("edit-radius").value = projectData.objects[object.name].radius;
-    document.getElementById("edit-mass").value = projectData.objects[object.name].mass;
-    document.getElementById("edit-colour").value = vec3ToHex(projectData.objects[object.name].colour);
 }
 
-function updateObjectData() {
-    const errorMessageDiv = document.getElementById("editObject-error-message");
+function configureObjectDataForm(object) {
+    const errorMessageDiv = document.getElementById("edit-object-error-message");
     errorMessageDiv.textContent = "";
 
-    const selectedObject = masterRenderer.objects[masterRenderer.currentSelection];
+    const inputGroups = document.getElementById("workbenchDataMenu-form").querySelectorAll(".input-group");
+    for (const inputGroup of inputGroups) {
+        inputGroup.classList.add("hidden");
+    }
+    
+    const objectType = projectData.objects[object.name].dtype;
+    if (objectType === 0) {
+        document.getElementById("edit-position-group").classList.remove("hidden");
+        document.getElementById("edit-velocity-group").classList.remove("hidden");
+        document.getElementById("edit-radius-group").classList.remove("hidden");
+        document.getElementById("edit-mass-group").classList.remove("hidden");
+        document.getElementById("edit-charge-group").classList.remove("hidden");
+        document.getElementById("edit-colour-group").classList.remove("hidden");
+    }
+    else if (objectType === 1) {
+        document.getElementById("edit-position-group").classList.remove("hidden");
+        document.getElementById("edit-dimentions-group").classList.remove("hidden");
+        document.getElementById("edit-orientation-group").classList.remove("hidden");
+        document.getElementById("edit-charge-group").classList.remove("hidden");
+        document.getElementById("edit-colour-group").classList.remove("hidden");  
+    }
+}
 
-    const name = document.getElementById("edit-objectName").value;
+function validateObjectBasedInputs(prefix) {
+    const errorMessageDiv = document.getElementById(`${prefix}object-error-message`);
+    errorMessageDiv.textContent = ""; //clear prev msgs
+
+    const name = document.getElementById(`${prefix}objectName`).value;
 
     const nameRegex = /^[a-zA-Z0-9_]+$/;
     if (!nameRegex.test(name)) {
         errorMessageDiv.textContent = `Object name (${name}) is invalid. Only characters (A-Z, a-z, _ and 0-9) are allowed`;
-        return;
+        return false;
     } 
 
     const axes = ["x", "y", "z"];
+    const orientations = ["pitch", "yaw", "roll"];
 
-    let position = {};
-    for (const axis of axes) {
-        const inp = document.getElementById(`edit-position-${axis}`);
-        const val = parseFloat(inp.value);
-        if (isNaN(val)) {
-            errorMessageDiv.textContent = `Position (${axis}) must be a float`;
-            return;
+    if (! document.getElementById(`${prefix}position-group`).classList.contains("hidden")) {
+        let position = {};
+        for (const axis of axes) {
+            const inp = document.getElementById(`${prefix}position-${axis}`);
+            const val = parseFloat(inp.value);
+            if (isNaN(val)) {
+                errorMessageDiv.textContent = `Position (${axis}) must be a float`;
+                return false;
+            }
+            position[axis] = val
         }
-        position[axis] = val
     }
 
-    let velocity = {};
-    for (const axis of axes) {
-        const inp = document.getElementById(`edit-velocity-${axis}`);
-        const val = parseFloat(inp.value);
-        if (isNaN(val)) {
-            errorMessageDiv.textContent = `Velocity (${axis}) must be a float`;
-            return;
+    if (! document.getElementById(`${prefix}velocity-group`).classList.contains("hidden")) {
+        let velocity = {};
+        for (const axis of axes) {
+            const inp = document.getElementById(`${prefix}velocity-${axis}`);
+            const val = parseFloat(inp.value);
+            if (isNaN(val)) {
+                errorMessageDiv.textContent = `Velocity (${axis}) must be a float`;
+                return false;
+            }
+            velocity[axis] = val
         }
-        velocity[axis] = val
     }
 
-    const radiusInp = document.getElementById("edit-radius");
-    const radius = parseFloat(radiusInp.value);
-    if (isNaN(radius) || radius <= 0) {
-        errorMessageDiv.textContent = "Radius must be a positive non-zero float";
+    if (! document.getElementById(`${prefix}dimentions-group`).classList.contains("hidden")) {
+        const length = parseFloat(document.getElementById(`${prefix}length`).value);
+        if (isNaN(length) || length <= 0) {
+            errorMessageDiv.textContent = "Length must be a non-zero positive float.";
+            return false;
+        }
+
+        const width = parseFloat(document.getElementById(`${prefix}width`).value);
+        if (isNaN(width) || width <= 0) {
+            errorMessageDiv.textContent = "Width must be a non-zero positive float.";
+            return false;
+        }
+    }
+
+    if (! document.getElementById(`${prefix}orientation-group`).classList.contains("hidden")) {
+        for (const orientation of orientations) {
+            const val = parseFloat(document.getElementById(prefix + orientation).value);
+            if (isNaN(val)) {
+                errorMessageDiv.textContent = `Orientation (${orientation}) value must be a float.`;
+                return false;
+            }
+        }
+    }
+
+    if (! document.getElementById(`${prefix}radius-group`).classList.contains("hidden")) {
+        const radiusInp = document.getElementById(`${prefix}radius`);
+        const radius = parseFloat(radiusInp.value);
+        if (isNaN(radius) || radius <= 0) {
+            errorMessageDiv.textContent = "Radius must be a positive non-zero float";
+            return false;
+        }
+    }
+
+    if (! document.getElementById(`${prefix}mass-group`).classList.contains("hidden")) {
+        const massInp = document.getElementById(`${prefix}mass`);
+        const mass = parseFloat(massInp.value);
+        if (isNaN(mass) || mass <= 0) {
+            errorMessageDiv.textContent = "Mass must be a positive non-zero float";
+            return false;
+        }
+    }
+
+    if (! document.getElementById(`${prefix}charge-group`).classList.contains("hidden")) {
+        const chargeInp = document.getElementById(`${prefix}charge`);
+        const charge = parseFloat(chargeInp.value);
+        if (isNaN(charge)) {
+            errorMessageDiv.textContent = "Charge must be a float";
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function updateObjectData() {
+    if (! validateObjectBasedInputs("edit-")) {
         return;
     }
 
-    const massInp = document.getElementById("edit-mass");
-    const mass = parseFloat(massInp.value);
-    if (isNaN(mass) || mass <= 0) {
-        errorMessageDiv.textContent = "Mass must be a positive non-zero float";
-        return;
-    }
-
-    const fidelity = calculateScaledFidelity(radius);
-
-    const colour = hexToVec3(document.getElementById("edit-colour").value);
-
+    const selectedObject = masterRenderer.objects[masterRenderer.currentSelection];
     const oldObjectName = selectedObject.name;
-    const oldDtype = projectData.objects[oldObjectName].dtype;
+    const dtype = projectData.objects[oldObjectName].dtype;
 
-    //update view data
-    selectedObject.name = name;
-    selectedObject.x = position.x;
-    selectedObject.y = position.y;
-    selectedObject.z = position.z;
-    selectedObject.radius = radius;
-    selectedObject.colour = colour;
-    selectedObject.fidelity = fidelity;
+    const name = document.getElementById("edit-objectName").value;
 
-    //update model data
-    if (oldObjectName !== name) {
-        delete projectData.objects[oldObjectName];
-        projectData.objects[name] = {};
+    if (dtype === 0) {
+        const radius = parseFloat(document.getElementById("edit-radius").value);
+        const fidelity = calculateScaledFidelity(radius);
+        const position = {
+            x: parseFloat(document.getElementById("edit-position-x").value), 
+            y: parseFloat(document.getElementById("edit-position-y").value), 
+            z: parseFloat(document.getElementById("edit-position-z").value)
+        }
+        const velocity = {
+            x: parseFloat(document.getElementById("edit-velocity-x").value), 
+            y: parseFloat(document.getElementById("edit-velocity-y").value), 
+            z: parseFloat(document.getElementById("edit-velocity-z").value)
+        }
+        const mass = parseFloat(document.getElementById("edit-mass").value);
+        const charge = parseFloat(document.getElementById("edit-charge").value);
+        const colour = hexToVec3(document.getElementById("edit-colour").value);
+
+        //update view data
+        selectedObject.name = name;
+        selectedObject.x = position.x;
+        selectedObject.y = position.y;
+        selectedObject.z = position.z;
+        selectedObject.radius = radius;
+        selectedObject.colour = colour;
+        selectedObject.fidelity = fidelity;
+
+        //update model data
+        if (oldObjectName !== name) {
+            delete projectData.objects[oldObjectName];
+            projectData.objects[name] = {};
+        }
+        projectData.objects[name].position = [position.x, position.y, position.z];
+        projectData.objects[name].velocity = [velocity.x, velocity.y, velocity.z];
+        projectData.objects[name].radius = radius;
+        projectData.objects[name].mass = mass;
+        projectData.objects[name].charge = charge;
+        projectData.objects[name].colour = colour;
+        projectData.objects[name].dtype = dtype;
     }
-    projectData.objects[name].position = [position.x, position.y, position.z];
-    projectData.objects[name].velocity = [velocity.x, velocity.y, velocity.z];
-    projectData.objects[name].radius = radius;
-    projectData.objects[name].mass = mass;
-    projectData.objects[name].colour = colour;
-    projectData.objects[name].dtype = oldDtype;
+    else if (dtype === 1) {
+        const position = {
+            x: parseFloat(document.getElementById("edit-position-x").value), 
+            y: parseFloat(document.getElementById("edit-position-y").value), 
+            z: parseFloat(document.getElementById("edit-position-z").value)
+        }
+        const orientation = {
+            pitch: linearAlgebra.toRadian(parseFloat(document.getElementById("edit-pitch").value)), 
+            yaw: linearAlgebra.toRadian(parseFloat(document.getElementById("edit-yaw").value)), 
+            roll: linearAlgebra.toRadian(parseFloat(document.getElementById("edit-roll").value))
+        }
+        const dimentions = {
+            length: parseFloat(document.getElementById("edit-length").value), 
+            width: parseFloat(document.getElementById("edit-width").value)
+        }
+        const charge = parseFloat(document.getElementById("edit-charge").value);
+        const colour = hexToVec3(document.getElementById("edit-colour").value);
 
-    //masterRenderer.objects[masterRenderer.currentSelection] = selectedObject;
+        //update view data
+        selectedObject.name = name;
+        selectedObject.x = position.x;
+        selectedObject.y = position.y;
+        selectedObject.z = position.z;
+        selectedObject.pitch = orientation.pitch;
+        selectedObject.yaw = orientation.yaw;
+        selectedObject.roll = orientation.roll;
+        selectedObject.length = dimentions.length;
+        selectedObject.width = dimentions.width;
+        selectedObject.colour = colour;
 
-    //masterRenderer.currentSelection = name;
+        //update model data
+        if (oldObjectName !== name) {
+            delete projectData.objects[oldObjectName];
+            projectData.objects[name] = {};
+        }
+
+        projectData.objects[name].position = [position.x, position.y, position.z];
+        projectData.objects[name].orientation = [orientation.pitch, orientation.yaw, orientation.roll];
+        projectData.objects[name].dimentions = [dimentions.length, dimentions.width];
+        projectData.objects[name].charge = charge;
+        projectData.objects[name].colour = colour;
+        projectData.objects[name].dtype = dtype;
+    }
 
     masterRenderer.quickInitialise(masterRenderer.objects);
     ge.quickAnimationStart();
 
-    markUnsavedChanges();
+    markUnsavedChanges("high");
 }
 
 function toggleObjectDataMenu(event) {
@@ -592,9 +1255,10 @@ function toggleObjectDataMenu(event) {
     const workbenchDataMenu = document.getElementById("workbenchDataMenu");
 
     if (masterRenderer.currentSelection !== null) {
-        orientationViewport.style.right = "250px";
+        orientationViewport.style.right = "320px";
         workbenchDataMenu.classList.remove("hidden");
         populateObjectDataForm(event.detail);
+        configureObjectDataForm(event.detail);
     } 
     else {
         orientationViewport.style.right = "0px"; 
@@ -615,22 +1279,43 @@ document.getElementById("exitObjectDataMenu-button").addEventListener("pointerup
 document.addEventListener("objectSelected", toggleObjectDataMenu);
 
 document.getElementById("edit-objectName").addEventListener("input", updateObjectData);
-document.getElementById("edit-position-x").addEventListener("input", updateObjectData);
-document.getElementById("edit-position-y").addEventListener("input", updateObjectData);
-document.getElementById("edit-position-z").addEventListener("input", updateObjectData);
-document.getElementById("edit-velocity-x").addEventListener("input", updateObjectData);
-document.getElementById("edit-velocity-y").addEventListener("input", updateObjectData);
-document.getElementById("edit-velocity-z").addEventListener("input", updateObjectData);
-document.getElementById("edit-radius").addEventListener("input", updateObjectData);
-document.getElementById("edit-mass").addEventListener("input", updateObjectData);
-document.getElementById("edit-colour").addEventListener("input", updateObjectData);
+for (const element of document.getElementsByClassName("edit-input")) {
+    element.addEventListener("input", updateObjectData);
+}
 
+function configureModelDataToggles() {
+    document.getElementById("gravity-toggle").checked = projectData.models.gravity.compute;
+    document.getElementById("eForce-toggle").checked = projectData.models.eForce.compute;
+    document.getElementById("mForce-toggle").checked = projectData.models.mForce.compute;
+    document.getElementById("collisions-toggle").checked = projectData.models.collisions.compute;
+}
+
+function updateModelData(event) {
+    projectData.models.gravity.compute = document.getElementById("gravity-toggle").checked;
+    projectData.models.eForce.compute = document.getElementById("eForce-toggle").checked;
+    projectData.models.mForce.compute = document.getElementById("mForce-toggle").checked;
+    projectData.models.collisions.compute = document.getElementById("collisions-toggle").checked;
+
+    markUnsavedChanges("high");
+}
+
+for (const element of document.getElementsByClassName("model-toggle")) {
+    element.addEventListener("input", updateModelData);
+}
 
 
 document.addEventListener("objectMoved", recordObjectMovement);
 
 async function saveProjectData() {
     const projectName = communicator.getProjNameFromUrl();
+
+    settingsData.camera.mode = cameraMode;
+    if (cameraMode === "Y-Polar") {
+        settingsData.camera.pose = {r: camera.r, alt: camera.alt, azi: camera.azi};
+    }
+    else { //Y-Cartesian or Quaternion
+        settingsData.camera.pose = {coords: camera.coords, orientation: camera.orientation};
+    }
 
     //super jank solution to merge the two surfaces when screenshotting (courtesty of stack overflow)
     const modelSurface = document.getElementById("model-surface");
@@ -648,8 +1333,11 @@ async function saveProjectData() {
 
     const screenshot = offScreenCanvas.toDataURL("image/png");
 
-    await communicator.updateProjectData(projectName, projectData, screenshot);
-    clearUnsavedChanges();
+    const response = await communicator.updateProjectData(projectName, projectData, settingsData, screenshot);
+
+    if (response.status === "OK") {
+        clearUnsavedChanges();
+    }
 }
 
 document.getElementById("openCreateObjectMenu-button").addEventListener("pointerdown", showCreateObjectOverlay);
@@ -725,22 +1413,15 @@ async function updateComputingProgress() {
 
 
         progressUpdateInterval = totalTimeEstimate / Math.cbrt(totalTimeEstimate);
-
         progressUpdateInterval = Math.round(progressUpdateInterval);
 
-        const progressBarTiming = {
-            duration: progressUpdateInterval,
-            iterations: 1,
-            fill: "forwards"
-        };
-        
-        progressBar.style.transitionTimingFunction = progressBarTiming;
+        progressBar.style.transitionDuration = `${progressUpdateInterval}ms`;
 
         const progressPercentage = progress * 100;
 
-        progressBar.style.width = `${progressPercentage}%`;
-
         document.getElementById("computeProgressText").textContent = `${progressPercentage.toFixed(2)}%`;
+
+        progressBar.style.width = `${progressPercentage}%`;
 
         currentProgressTimeout = setTimeout(updateComputingProgress, progressUpdateInterval);
     }
@@ -767,7 +1448,7 @@ async function stopComputingSimulation() {
 
 
     document.getElementById("computeProgress").classList.add("hidden");
-    document.getElementById("stopComputeButton").classList.add("hidden");
+    document.getElementById("stopComputingButton").classList.add("hidden");
     document.getElementById("computeNewSimulationButton").classList.remove("hidden");
     document.getElementById("simulationConfigs").classList.remove("hidden");
 
@@ -787,6 +1468,7 @@ async function createAndComputeNewSimulation() {
 
     projectData.deltaT = parseFloat(document.getElementById("deltaT").value);
     projectData.noOfFrames = parseInt(document.getElementById("noOfFrames").value);
+    projectData.stepsPerFrame = parseInt(document.getElementById("stepsPerFrame").value);
 
     saveProjectData();
 
@@ -817,7 +1499,7 @@ async function createAndComputeNewSimulation() {
     document.getElementById("computeNewSimulationButton").classList.add("hidden");
     document.getElementById("simulationConfigs").classList.add("hidden");
     
-    progressUpdateInterval = 100;
+    progressUpdateInterval = 150;
     lastProgress = 0;
     start_t = Date.now();
     currentProgressTimeout = setTimeout(updateComputingProgress, progressUpdateInterval);
@@ -841,16 +1523,24 @@ function validateSimulaitonConfigEntrys() {
         return false;
     }
 
+    const stepsPerFrame_inp = document.getElementById("stepsPerFrame");
+    const stepsPerFrame = parseInt(stepsPerFrame_inp.value);
+    if (isNaN(stepsPerFrame) || stepsPerFrame <= 0) {
+        errorMessageDiv.textContent = "Number of steps per frame must be a positive non-zero integer";
+        return false;
+    }
+
     return true;
 }
 
 document.getElementById("deltaT").addEventListener("input", validateSimulaitonConfigEntrys);
 document.getElementById("noOfFrames").addEventListener("input", validateSimulaitonConfigEntrys);
+document.getElementById("stepsPerFrame").addEventListener("input", validateSimulaitonConfigEntrys);
 
 document.getElementById("stopComputingButton").addEventListener("pointerdown", stopComputingSimulation);
 
-function handleLeavePage (event) {
-    if (unsavedChanges) {
+function handleLeavePage(event) {
+    if (unsavedChanges === "high") {
         return "You have unsaved changes. If you leave now, your changes will be lost. Are you sure you want to leave?";
     } 
     else if (currentActiveWorkerId !== null) {
@@ -861,6 +1551,36 @@ function handleLeavePage (event) {
 window.onbeforeunload = handleLeavePage;
 
 
+
+document.getElementById("edit-objectName").addEventListener(
+    "focus", () => {
+        unbindAllKeyControls();
+        document.removeEventListener("keydown", workbenchKeyEvents);
+    }
+);
+document.getElementById("edit-objectName").addEventListener(
+    "focusout", () => {
+        bindAllControls(ge.canvas);
+        document.addEventListener("keydown", workbenchKeyEvents);
+    }
+);
+for (const element of document.getElementsByClassName("numInpBox")) {
+    element.addEventListener(
+        "focus", () => {
+            unbindAllKeyControls();
+            document.removeEventListener("keydown", workbenchKeyEvents);
+        }
+    );
+    element.addEventListener(
+        "focusout", () => {
+            bindAllControls(ge.canvas);
+            document.addEventListener("keydown", workbenchKeyEvents);
+        }
+    );
+}
+
+
+
 async function setupWorkbench() {
     const response = await communicator.loginFromSessionStorage();
     if (response.status === "ERR") {
@@ -869,7 +1589,9 @@ async function setupWorkbench() {
         return;
     }
 
-    loadData();
+    await loadData();
+    configureModelDataToggles();
+    configureCreateObjectEntries();
 }
 
 setupWorkbench();
