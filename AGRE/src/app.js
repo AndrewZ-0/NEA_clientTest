@@ -2,7 +2,10 @@ import {clock} from "./core/clock.js";
 import {axisViewport} from "./core/axisViewPort.js";
 import {masterRenderer, orientationRenderer, axisRenderer} from "./core/renderer.js";
 import {camera} from "./core/camera.js";
-import {updateCameraModeOverlay, updateCameraPerspectiveOverlays, updateFpsOverlay} from "./core/overlays.js";
+import {
+    updateCameraModeOverlay, updateSensitivityOverlays, 
+    updateCameraPerspectiveOverlays, updateFpsOverlay
+} from "./core/overlays.js";
 import {bindVisabilityChange, bindAllControls, quickReleaseKeys, set_moveObjectsStatus} from "./core/listeners.js";
 import {orientationMenu} from "./core/orientationViewPort.js";
 
@@ -32,10 +35,11 @@ export class GraphicsEngine {
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 
         //compile shaders, buffers and render transform matricies
-        masterRenderer.initialise(this.gl, this.canvas, camera, objects);
+        masterRenderer.initialise(this.gl, this.canvas, objects);
 
         updateCameraModeOverlay();
         updateCameraPerspectiveOverlays();
+        updateSensitivityOverlays();
         camera.updateAllOverlays();
 
         masterRenderer.setAllUniformMatrixies();
@@ -44,7 +48,6 @@ export class GraphicsEngine {
         bindAllControls(this.canvas);
         bindVisabilityChange(this.onVisibilityChange);
 
-        //shut up, it's for the mobile version. I would never
         this.resizeCanvas();
         window.addEventListener("resize", () => this.resizeCanvas());
     }
@@ -62,13 +65,19 @@ export class GraphicsEngine {
         clock.updateDeltaT();
         updateFpsOverlay();
 
-        this.currentAnimationFrame = requestAnimationFrame(this.mainloop)
+        camera.changedSinceLastFrame = false;
+
+        this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
     };
 
     start = () => {
         //condition here as a quick fix for initial hidden document "inifinity fps issue"
         if (!document.hidden) {
-            this.quickAnimationStart();
+            camera.forceUpdateCamera(masterRenderer.matricies.view);
+            camera.changedSinceLastFrame = false;
+
+            masterRenderer.updateFlag = true;
+            this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
         }
     }
 
@@ -78,7 +87,13 @@ export class GraphicsEngine {
             cancelAnimationFrame(this.currentAnimationFrame);
         } 
         else {
-            this.forceAnimationFrame();
+            cancelAnimationFrame(this.currentAnimationFrame);
+
+            camera.forceUpdateCamera(masterRenderer.matricies.view);
+            camera.changedSinceLastFrame = false;
+
+            masterRenderer.updateFlag = true;
+            this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
         }
     }
 
@@ -90,7 +105,16 @@ export class GraphicsEngine {
 
     forceAnimationFrame() {
         camera.forceUpdateCamera(masterRenderer.matricies.view);
-        camera.forceUpdateCamera(axisRenderer.matricies.view);
+        masterRenderer.render();
+
+        axisViewport.updateView();
+        axisRenderer.render();
+        //camera.forceUpdateCamera(axisRenderer.matricies.view);
+
+        orientationMenu.updateView();
+        orientationRenderer.render();
+
+        //this.updateFlag = true;
         //camera.forceUpdateCamera(orientationRenderer.matricies.view);
         this.currentAnimationFrame = requestAnimationFrame(this.mainloop);
     }

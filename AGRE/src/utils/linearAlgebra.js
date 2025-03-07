@@ -3,11 +3,14 @@ export const globalFront = {x: 0, y: 0, z: -1};
 export const globalRight = {x: 1, y: 0, z: 0};
 export const globalUp = {x: 0, y: 1, z: 0};
 
-export let identityMatrix = createMat4();
+export const identityMatrix = createMat4();
 identityMat4(identityMatrix);
 
 
+//hmm, note to self: might need to move all the trig stuff out of this file. (cause its not linear algebra...)
+
 export const halfPi = Math.PI / 2;
+export const twoPi = Math.PI * 2;
 
 //can't believe this is not a built in function..
 export function toDegree(radian) {
@@ -18,7 +21,19 @@ export function toRadian(degrees) {
     return degrees * (Math.PI / 180);
 }
 
-//Shut up, I totally did not yoink this from wikipedia
+export function wrapPositive(n, m) {
+    return (n % m + m) % m;
+}
+
+export function wrapSymmetric(n, m) {
+    return wrapPositive(n, 2 * m) - m;
+}
+
+export function clamp(n, min, max) {
+    return Math.max(min, Math.min(n, max));
+}
+
+//"borrowed" from Wikipedia
 export function pitchFromQuat(q) {
     return Math.atan2(
         2 * (q.w * q.x + q.y * q.z),
@@ -27,11 +42,12 @@ export function pitchFromQuat(q) {
 }
 
 export function yawFromQuat(q) {
-    const thingthatidontknowthenameof = Math.atan2(
-        (1 + 2 * (q.w * q.y - q.x * q.z)) ** 0.5, 
-        (1 - 2 * (q.w * q.y - q.x * q.z)) ** 0.5
-    )
-    return 2 * thingthatidontknowthenameof - halfPi;
+    return (
+        2 * Math.atan2(
+            (1 + 2 * (q.w * q.y - q.x * q.z)) ** 0.5, 
+            (1 - 2 * (q.w * q.y - q.x * q.z)) ** 0.5
+        ) - halfPi
+    );
 }
 
 export function rollFromQuat(q) {
@@ -41,29 +57,32 @@ export function rollFromQuat(q) {
     );
 }
 
-
-//------------------------------------------------------------------------------------------
-//p->y
-//y->r
-//r->p
-
-//angles in radians
-//don't really need this now, was using it for controlling roll during testing
-export function setQuaternian(q, pitch, yaw, roll) {
-    const cr = Math.cos(roll / 2);
-    const sr = Math.sin(roll / 2);
-    const cp = Math.cos(pitch / 2);
-    const sp = Math.sin(pitch / 2);
+//modified version of the one found on wikipedia (for left orient)
+export function quatFromEuler(pitch, yaw, roll) {
     const cy = Math.cos(yaw / 2);
     const sy = Math.sin(yaw / 2);
+    const cp = Math.cos(pitch / 2);
+    const sp = Math.sin(pitch / 2);
+    const cr = Math.cos(roll / 2);
+    const sr = Math.sin(roll / 2);
 
-    q[0] = sp * cy  - cp * sy * sr;  // x
-    q[1] = cp * sy  + sp * cy * sr;  // y
-    q[2] = cp * cy * sr - sp * sy ;  // z
-    q[3] = cp * cy  + sp * sy * sr;  // w
+    return {
+        x: cr * sp * cy + sr * cp * sy,
+        y: cr * cp * sy - sr * sp * cy,
+        z: sr * cp * cy - cr * sp * sy,
+        w: cr * cp * cy + sr * sp * sy
+    };
 }
 
-//------------------------------------------------------------------------------------------
+
+export function scaleQuat(quat, sf) {
+    return {
+        x: quat.x * sf, 
+        y: quat.y * sf, 
+        z: quat.z * sf, 
+        w: quat.w * sf
+    }
+}
 
 
 export function setMat4rotation(matrix, eulerSet) {
@@ -105,7 +124,7 @@ export function sumSquaresVec3(vec) {
 }
 
 export function magnitudeVec3(vec) {
-    return Math.sqrt(sumSquaresVec3(vec));
+    return sumSquaresVec3(vec) ** 0.5;
 }
 
 export function divVec3(vec, mag) {
@@ -173,7 +192,7 @@ export function lookAt(viewOut, eye, front, up) {
 }
 
 export function transformQuat(out, vec, q) {
-    //God I'm smart: since crossVec only uses x, y, z passing it a vec4 such as q does not matter
+    //Since crossVec only uses x, y, z passing it a vec4 such as q does not matter
     let uv = crossVec3(q, vec);
     let uuv = crossVec3(q, uv);
 
@@ -184,6 +203,32 @@ export function transformQuat(out, vec, q) {
     out.x = vec.x + uv.x + uuv.x;
     out.y = vec.y + uv.y + uuv.y;
     out.z = vec.z + uv.z + uuv.z;
+}
+
+//note to self for some reason x is the other way round in the calcs
+export function getBasisHorizontalCoords(orientation) {
+    const s_alt = Math.sin(orientation.alt);
+    const c_alt = Math.cos(orientation.alt);
+    const s_azi = Math.sin(orientation.azi);
+    const c_azi = Math.cos(orientation.azi);
+
+    return {
+        front: normaliseVec3({
+            x: s_azi * c_alt,  
+            y: s_alt,
+            z: c_azi * c_alt
+        }),
+        up: normaliseVec3({
+            x: -s_alt * s_azi, 
+            y: c_alt, 
+            z: -s_alt * c_azi
+        }),
+        right: normaliseVec3({
+            x: -c_azi,
+            y: 0,
+            z: s_azi
+        })
+    };
 }
 
 
@@ -294,8 +339,6 @@ export function dotVec2(a, b) {
     return a.x * b.x + a.y * b.y;
 }
 
-
-//new ------------------------------------------------------------------------------------------
 export function ortho(left, right, bottom, top, near, far) {
     const rl_diff = right - left;
     const tb_diff = top - bottom;
@@ -325,13 +368,13 @@ export function coordsfromPolar(r, alt, azi) {
 //derrived this function by modifying and simplifying the standard euler to quat function 
 //since polar coord has y-axis fixed, no roll is introduced
 export function quatOrientationFromPolar(alt, azi) {
-    const halfPitch = -alt / 2;
-    const halfYaw = azi / 2;
+    const halfAlt = -alt / 2;
+    const halfAzi = azi / 2;
 
-    const cp = Math.cos(halfPitch);
-    const sp = Math.sin(halfPitch);
-    const cy = Math.cos(halfYaw);
-    const sy = Math.sin(halfYaw);
+    const cp = Math.cos(halfAlt);
+    const sp = Math.sin(halfAlt);
+    const cy = Math.cos(halfAzi);
+    const sy = Math.sin(halfAzi);
 
     return {
         x: sp * cy, 
@@ -341,6 +384,23 @@ export function quatOrientationFromPolar(alt, azi) {
     };
 }
 
+export function polarFromQuatOrientation(quat) {
+    const front = {x: 0, y: 0, z: 0};
+    transformQuat(front, globalFront, quat);
+
+    const alt = Math.asin(-front.y);
+
+    const xzPlane_front = normaliseVec3(subVec3(front, scaleVec3(globalUp, dotVec3(front, globalUp))));
+
+    let azi = Math.acos(-xzPlane_front.z);
+
+    if (xzPlane_front.x > 0) {
+        azi = twoPi - azi;
+    }
+
+    return {alt, azi};
+}
+
 
 export function toVec3(obj) {
     return [obj.x, obj.y, obj.z];
@@ -348,35 +408,35 @@ export function toVec3(obj) {
 
 
 export function invertMat4(a) {
-    let a00 = a[0],
+    const a00 = a[0],
         a01 = a[1],
         a02 = a[2],
         a03 = a[3];
-    let a10 = a[4],
+    const a10 = a[4],
         a11 = a[5],
         a12 = a[6],
         a13 = a[7];
-    let a20 = a[8],
+    const a20 = a[8],
         a21 = a[9],
         a22 = a[10],
         a23 = a[11];
-    let a30 = a[12],
+    const a30 = a[12],
         a31 = a[13],
         a32 = a[14],
         a33 = a[15];
 
-    let b00 = a00 * a11 - a01 * a10;
-    let b01 = a00 * a12 - a02 * a10;
-    let b02 = a00 * a13 - a03 * a10;
-    let b03 = a01 * a12 - a02 * a11;
-    let b04 = a01 * a13 - a03 * a11;
-    let b05 = a02 * a13 - a03 * a12;
-    let b06 = a20 * a31 - a21 * a30;
-    let b07 = a20 * a32 - a22 * a30;
-    let b08 = a20 * a33 - a23 * a30;
-    let b09 = a21 * a32 - a22 * a31;
-    let b10 = a21 * a33 - a23 * a31;
-    let b11 = a22 * a33 - a23 * a32;
+    const b00 = a00 * a11 - a01 * a10;
+    const b01 = a00 * a12 - a02 * a10;
+    const b02 = a00 * a13 - a03 * a10;
+    const b03 = a01 * a12 - a02 * a11;
+    const b04 = a01 * a13 - a03 * a11;
+    const b05 = a02 * a13 - a03 * a12;
+    const b06 = a20 * a31 - a21 * a30;
+    const b07 = a20 * a32 - a22 * a30;
+    const b08 = a20 * a33 - a23 * a30;
+    const b09 = a21 * a32 - a22 * a31;
+    const b10 = a21 * a33 - a23 * a31;
+    const b11 = a22 * a33 - a23 * a32;
 
     //calculate the determinant
     let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
@@ -483,4 +543,19 @@ export function applyEulerSet(vec, eulerSet) {
     return applyMat3(rotMat3, vec)
 }
 
-//new ------------------------------------------------------------------------------------------
+
+export function hexToVec3(colourHex) {
+    const r = parseInt(colourHex.slice(1, 3), 16) / 255;
+    const g = parseInt(colourHex.slice(3, 5), 16) / 255;
+    const b = parseInt(colourHex.slice(5, 7), 16) / 255;
+
+    return [r, g, b];
+}
+
+export function vec3ToHex(colourVec3) {
+    const r = Math.round(colourVec3[0] * 255).toString(16).padStart(2, "0");
+    const g = Math.round(colourVec3[1] * 255).toString(16).padStart(2, "0");
+    const b = Math.round(colourVec3[2] * 255).toString(16).padStart(2, "0");
+
+    return "#" + r + g + b;
+}

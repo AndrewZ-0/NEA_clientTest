@@ -3,29 +3,64 @@ import {masterRenderer} from "../AGRE/src/core/renderer.js";
 import {Sphere, Plane} from "../AGRE/src/objects/objects.js";
 import {communicator} from "./communicator.js";
 import {calculateScaledFidelity} from "../AGRE/src/utils/renderProperties.js";
-import {bindAllControls, bindCameraCallbacks, unbindAllKeyControls, unbindCameraCallbacks} from "../AGRE/src/core/listeners.js";
-import {FPS} from "../AGRE/src/core/clock.js";
+import {bindAllControls, unbindAllKeyControls} from "../AGRE/src/core/listeners.js";
+import {toggleTab} from "./tabMenu.js";
+import {FindObjectOverlay} from "./overlays/findObjectOverlay.js";
+import {CameraOverlay} from "./overlays/cameraOverlay.js";
+import {SpeedEditOverlay} from "./overlays/speedOverlay.js";
+import {cameraMode} from "../AGRE/src/core/camera.js";
+import {camera, setDraggingSensitivity, setCameraMovementSpeed, setCameraMode} from "../AGRE/src/core/camera.js";
+
+import {GravityViewOverlay} from "./overlays/gravityOverlay.js";
+import {ElectricForceViewOverlay} from "./overlays/eForceOverlay.js";
+import {MagneticForceViewOverlay} from "./overlays/mForceOverlay.js";
+import {CollisionsViewOverlay} from "./overlays/collisionsOverlay.js";
+import {DragViewOverlay} from "./overlays/dragOverlay.js";
+
+import {Player} from "./player.js";
 
 
 function returnToWorkbench() {
+    let serverQuery = communicator.getServerQuery();
+    if (serverQuery !== "") {
+        serverQuery += "&";
+    }
+    else {
+        serverQuery = "?";
+    }
     const projectName = communicator.getProjNameFromUrl();
-    window.location.href = `projectWorkbench.html?project=${projectName}`;
+    window.location.href = "projectWorkbench.html" + serverQuery + `project=${projectName}`;
 }
 
 document.getElementById("titleBarReturnButton").addEventListener("pointerdown", returnToWorkbench);
 
 let ge;
 let simConfig = {};
+let settingsData = {};
+
+let player;
 let objectHeaders;
 let frames = [];
 let objectLookup = {};
 
-let delta_t;
+let cameraOverlay;
+let findObjectOverlay;
+let speedOverlay;
+
+let gravityOverlay;
+let eForceOverlay;
+let mForceOverlay;
+let collisionsOverlay;
+let dragOverlay;
 
 function parseFramesString(framesString) {
-    const lines = framesString.trim().split("\n");
+    const lines = framesString.split("\n");
 
-    const headers = lines[0].split(" "); //first line always contains the object headers
+    let headers = lines[0].split(" "); //first line always contains the object headers
+    
+    if (headers[0] === "" && headers.length === 1) {
+        headers = [];
+    }
 
     const frames = [];
 
@@ -45,13 +80,18 @@ function parseFramesString(framesString) {
     return {headers, frames};
 }
 
-
+const maxProjectNameLength = 20;
 async function loadData() {
     const projectName = communicator.getProjNameFromUrl();
     const simulationName = communicator.getSimNameFromUrl();
-    console.log("Opening simulation:", `${projectName}::${simulationName}`);
     
-    document.getElementById("titlebar-simulation-name").textContent = `${projectName}::${simulationName}`;
+    if (projectName.length > maxProjectNameLength) {
+        const projectName_str = projectName.slice(0, maxProjectNameLength) + "...";
+        document.getElementById("titlebar-simulation-name").textContent = `${projectName_str}::${simulationName}`;
+    }
+    else {
+        document.getElementById("titlebar-simulation-name").textContent = `${projectName}::${simulationName}`;
+    }
 
     const projectData = await communicator.getSimulationData(projectName, simulationName);
 
@@ -61,7 +101,7 @@ async function loadData() {
     }
 
     simConfig = projectData.data.simConfig;
-
+    settingsData = projectData.data.settings;
 
     //const projectData = await communicator.getSimulationFrames(projectName, simulationName);
     const frameFileStreamResponse = await communicator.streamSimulationFramesFile(projectName, simulationName);
@@ -73,16 +113,9 @@ async function loadData() {
 
 
     const response = parseFramesString(frameFileStreamResponse.frames);
-
     objectHeaders = response.headers;
     frames = response.frames;
 
-    console.log(simConfig);
-    //console.log(frames);
-
-    //frames = projectData.data.frames;
-
-    //console.log(frames);
     let objects = [];
     for (let objectName in simConfig.objects) {
         if (simConfig.objects[objectName].dtype === 0) {
@@ -104,279 +137,235 @@ async function loadData() {
         }
     }
 
+    if (! Object.hasOwn(settingsData, "speed")) {
+        settingsData.speed = 1;
+    }
+
+    //to prevent setting camera mode from overwriting intial one in setting data
+    const initialCameraPose = settingsData.camera.pose;
+
     ge = new GraphicsEngine(objects);
-    ge.start();
 
     for (const obj of masterRenderer.objects) {
         objectLookup[obj.name] = obj;
     }
 
-    delta_t = simConfig.deltaT;
+    setDraggingSensitivity(settingsData.camera.sensitivity.draggingSensitivity);
+    setCameraMovementSpeed(settingsData.camera.sensitivity.movementSpeed);
 
-    updateProgressBar(0, 0); 
-    updateTiming(0, (frames.length - 1) * delta_t);
-}
-
-
-let currentFrame = 0;
-let isPaused = true;
-let isScrubbing = false;
-
-function displayFrame(frameIndex) {
-    const noOfObject = objectHeaders.length;
-    const frame = frames[frameIndex];
-
-    for (let i = 0; i < noOfObject; i++) {
-        const objectData = frame[i];
-        const objectName = objectHeaders[i];
-
-        const object = objectLookup[objectName];
-        object.x = objectData[0];
-        object.y = objectData[1];
-        object.z = objectData[2];
-    }
-
-    updateProgressBar(frameIndex / (frames.length - 1) * 100, screenRefreshInterval);
-    updateTiming(frameIndex * delta_t, (frames.length - 1) * delta_t);
-
-    masterRenderer.quickInitialise(masterRenderer.objects);
-    ge.quickAnimationStart();
-}
-
-let speedFactor = 1;
-const screenRefreshInterval = 1 / FPS;
-let cumlitiveTime = 0;
-function playSimulationFrame() {
-    if (isPaused) {
-        togglePause();
-        return;
-    }
-
-    const currentTime = performance.now();
-    const true_deltaTime = (currentTime - lastTime) / 1000 * speedFactor;
-    lastTime = currentTime;
-
-    if (! isScrubbing) {
-        cumlitiveTime += true_deltaTime;
-
-        currentFrame = Math.floor(cumlitiveTime / delta_t);
-
-        if (currentFrame >= frames.length) {
-            displayFrame(frames.length - 1);
-
-            currentFrame = frames.length;
-
-            pauseSimulation();
-            return;
-        }
-
-        displayFrame(currentFrame);
-    }
-
-    requestAnimationFrame(playSimulationFrame);
-}
-
-let lastTime;
-async function startSimulation() {
-    if (isPaused) {
-        if (currentFrame == frames.length) {
-            currentFrame = 0;
-            cumlitiveTime = 0;
-        }
-
-        isPaused = false;
-        togglePause();
-        lastTime = performance.now();
-        requestAnimationFrame(playSimulationFrame);
-    }
-}
-
-function pauseSimulation(event) {
-    isPaused = true;
-    togglePause();
-}
-
-function togglePause() {
-    if (isPaused) {
-        document.getElementById("pauseButton").classList.add("hidden");
-        document.getElementById("playButton").classList.remove("hidden");
-    } 
-    else {
-        document.getElementById("pauseButton").classList.remove("hidden");
-        document.getElementById("playButton").classList.add("hidden");
-    }
-}
-
-document.getElementById("playButton").addEventListener("pointerdown", startSimulation);
-document.getElementById("pauseButton").addEventListener("pointerdown", pauseSimulation);
-
-
-function handleStartScrubbing(event) {
-    isScrubbing = true;
-
-    unbindCameraCallbacks(ge.canvas);
-
-    handleScrubbing(event);
-}
-document.getElementById("simulationProgressBar").addEventListener("pointerdown", handleStartScrubbing);
-
-function handleScrubbingMotion(event) {
-    if (isScrubbing) {
-        handleScrubbing(event);
-    }
-}
-document.addEventListener("pointermove", handleScrubbingMotion);
-
-function handleStopScrubbing(event) {
-    isScrubbing = false;
-
-    bindCameraCallbacks(ge.canvas);
-}
-document.addEventListener("pointerup", handleStopScrubbing);
-
-
-//ensure progress does not go beyold width of progress bar
-function clampProgress(progress) {
-    if (progress < 0) {
-        return 0;
-    }
-    if (progress > 1) {
-        return 1;
-    }
-
-    return progress; 
-}
-
-function handleScrubbing(event) {
-    const progressBar = document.getElementById("simulationProgressBar");
-    const barWidth = progressBar.offsetWidth;
-    const clickX = event.clientX - progressBar.offsetLeft;
-
-    //ensure progress does not go beyold width of progress bar
-    const progress = clampProgress(clickX / barWidth); 
-
-    currentFrame = Math.floor(progress * (frames.length - 1));
-    cumlitiveTime = currentFrame * delta_t;
-    displayFrame(currentFrame);
-}
-
-
-function updateProgressBar(progress, progressUpdateInterval) {
-    const progressBar = document.getElementById("simulationProgressBar-progress");
+    setCameraModeRadio(settingsData.camera.mode);
     
-    progressBar.style.transitionDuration = `${progressUpdateInterval}ms`;
-    progressBar.style.width = `${progress}%`;
+    setCameraMode(settingsData.camera.mode);
+    camera.setPose(initialCameraPose);
+
+    setShaderModeRadio(settingsData.shaders.mode);
+    masterRenderer.setShaderMode(settingsData.shaders.mode);
+
+
+    cameraOverlay = new CameraOverlay(ge, settingsData, markUnsavedChanges);
+    cameraOverlay.bindShowCallback(unbindWorkspace);
+    cameraOverlay.bindHideCallback(bindWorkspace);
+
+    findObjectOverlay = new FindObjectOverlay(objectHeaders, objectLookup);
+    findObjectOverlay.bindShowCallback(unbindWorkspace);
+    findObjectOverlay.bindHideCallback(bindWorkspace);
+
+    player = new Player(ge, simConfig, settingsData, objectHeaders, frames, objectLookup, settingsData.speed, findObjectOverlay.updateFinderListObjects);
+
+    speedOverlay = new SpeedEditOverlay(settingsData, player, markUnsavedChanges);
+    speedOverlay.bindShowCallback(unbindWorkspace);
+    speedOverlay.bindHideCallback(bindWorkspace);
+
+    if (simConfig.models.gravity.compute) {
+        document.getElementById("openGravityMenu-button").classList.remove("hidden");
+        gravityOverlay = new GravityViewOverlay(simConfig);
+        gravityOverlay.bindShowCallback(unbindWorkspace);
+        gravityOverlay.bindHideCallback(bindWorkspace);
+    }
+    if (simConfig.models.eForce.compute) {
+        document.getElementById("openEForceMenu-button").classList.remove("hidden");
+        eForceOverlay = new ElectricForceViewOverlay(simConfig);
+        eForceOverlay.bindShowCallback(unbindWorkspace);
+        eForceOverlay.bindHideCallback(bindWorkspace);
+    }
+    if (simConfig.models.mForce.compute) {
+        document.getElementById("openMForceMenu-button").classList.remove("hidden");
+        mForceOverlay = new MagneticForceViewOverlay(simConfig);
+        mForceOverlay.bindShowCallback(unbindWorkspace);
+        mForceOverlay.bindHideCallback(bindWorkspace);
+    }
+    if (simConfig.models.collisions.compute) {
+        document.getElementById("openCollisionsMenu-button").classList.remove("hidden");
+        collisionsOverlay = new CollisionsViewOverlay(simConfig);
+        collisionsOverlay.bindShowCallback(unbindWorkspace);
+        collisionsOverlay.bindHideCallback(bindWorkspace);
+    }
+    if (simConfig.models.drag.compute) {
+        document.getElementById("openDragMenu-button").classList.remove("hidden");
+        dragOverlay = new DragViewOverlay(simConfig);
+        dragOverlay.bindShowCallback(unbindWorkspace);
+        dragOverlay.bindHideCallback(bindWorkspace);
+    }
+
+    ge.start();
 }
 
-function updateTiming(currentTime, totalTime) {
-    const timeEntry = document.getElementById("time-entry");
-    const totalTimeEntry = document.getElementById("total-time");
-    timeEntry.textContent = `${formatTime(currentTime)}`;
-    totalTimeEntry.textContent = ` / ${formatTime(totalTime)}`;
+function unbindWorkspace() {
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workspaceKeyEvents);
+}
+function bindWorkspace() {
+    document.addEventListener("keydown", workspaceKeyEvents);
+    bindAllControls(ge.canvas);
 }
 
 
-function updateTimeEntry() {
-    const timeEntry = document.getElementById("time-entry");
-    const userInput = timeEntry.textContent.split(":");
+async function saveSimulationSettings() {
+    const projectName = communicator.getProjNameFromUrl();
+    const simulationName = communicator.getSimNameFromUrl();
 
-    let inputTime_inSecs;
-    if (userInput.length === 1) {
-        inputTime_inSecs = parseFloat(userInput[0]);
-    }
-    else if (userInput.length === 2) {
-        const [minutes, seconds] = userInput;
+    const response = await communicator.updateSimulationSettings(projectName, simulationName, settingsData);
 
-        inputTime_inSecs = parseFloat(minutes) * 60 + parseFloat(seconds);
-    }
-    else {
-        displayFrame(currentFrame);
-        return;
-    }
-
-    if (isNaN(inputTime_inSecs) || inputTime_inSecs > (frames.length - 1) * delta_t) {
-        displayFrame(currentFrame);
-        return;
-    }
-
-    currentFrame = inputTime_inSecs / delta_t;
-    displayFrame(currentFrame);
-}
-
-function handleTimeEntry(event) {
-    if (event.key === "Enter") {
-        updateTimeEntry();
+    if (response.status === "OK") {
+        clearUnsavedChanges();
     }
 }
+document.getElementById("saveSimSettingsButton").addEventListener("pointerdown", saveSimulationSettings);
 
-document.getElementById("time-entry").addEventListener("keypress", handleTimeEntry);
-document.getElementById("time-entry").addEventListener("focus", unbindAllKeyControls);
-document.getElementById("time-entry").addEventListener(
-    "focusout", () => {
-        updateTimeEntry(); 
-        bindAllControls(ge.canvas);
+let unsavedChanges = false;
+function markUnsavedChanges(priority) {
+    if (!unsavedChanges) {
+        const saveSimSettingsButton = document.getElementById("saveSimSettingsButton");
+        const badge = document.querySelector("#saveSimSettingsButton .badge");
+        badge.classList.remove("hidden", "lowPriority", "highPriority");
+
+        if (priority === "high") {
+            badge.classList.add("highPriority");
+            saveSimSettingsButton.title = "Save Simulation Data to Server (You currently have unsaved high priority changes)";
+
+            if (player) {
+                player.unsavedChanges = true;
+            }
+        }
+        else if (priority === "low") {
+            badge.classList.add("lowPriority");
+            saveSimSettingsButton.title = "Save Simulation Data to Server (You currently have unsaved low priority changes: such as camera position)";
+        }
+
+        unsavedChanges = priority;
+    }
+    else if (priority === "high") {
+        const saveSimSettingsButton = document.getElementById("saveSimSettingsButton");
+        const badge = document.querySelector("#saveSimSettingsButton .badge");
+        badge.classList.remove("hidden", "lowPriority", "highPriority");
+
+        badge.classList.add("highPriority");
+        saveSimSettingsButton.title = "Save Simulation Data to Server (You currently have unsaved high priority changes: such as object data)";
+        unsavedChanges = priority;
+
+        if (player) {
+            player.unsavedChanges = true;
+        }
+    }
+}
+
+function clearUnsavedChanges() {
+    if (unsavedChanges !== false) {
+        const saveSimSettingsButton = document.getElementById("saveSimSettingsButton");
+        const badge = document.querySelector("#saveSimSettingsButton .badge");
+        badge.classList.remove("lowPriority", "highPriority");
+        badge.classList.add("hidden");
+        unsavedChanges = false;
+
+        saveSimSettingsButton.title = "Save Project Data to Server (You currently have unsaved no unsaved changes)";
+
+        if (player) {
+            player.unsavedChanges = false;
+        }
+    }
+}
+
+function handleCameraUpdate() {
+    settingsData.camera.pose = camera.getPose();
+    markUnsavedChanges("low");
+}
+
+document.addEventListener("cameraUpdated", handleCameraUpdate);
+
+
+
+function setCameraModeRadio(mode) {
+    const radio = document.querySelector(`input[name = 'cameraMode'][value = '${mode}']`);
+    if (radio) {
+        radio.checked = true;
+    }
+}
+
+document.addEventListener(
+    "cameraModeToggled", () => {
+        settingsData.camera.mode = cameraMode;
+        settingsData.camera.pose = camera.getPose();
+        setCameraModeRadio(cameraMode);
     }
 );
 
-function formatTime(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    const secs = (seconds % 60).toFixed(2);
-    
-    let formattedSeconds = secs.toString();
-    if (secs < 10) {
-        formattedSeconds = "0" + formattedSeconds;
+function setShaderModeRadio(mode) {
+    const radio = document.querySelector(`input[name = 'shaderMode'][value = '${mode}']`);
+    if (radio) {
+        radio.checked = true;
     }
-
-    return minutes + ":" + formattedSeconds;
 }
 
-
-function showSpeedMenu() {
-    const speedMenu = document.getElementById("speedMenu-overlay");
-    const speedButton = document.getElementById("speedButton");
-    speedMenu.classList.remove("hidden");
-    speedButton.removeEventListener("pointerdown", showSpeedMenu);
-    speedButton.addEventListener("pointerdown", hideSpeedMenu);
-}
-
-function hideSpeedMenu() {
-    const speedMenu = document.getElementById("speedMenu-overlay");
-    const speedButton = document.getElementById("speedButton");
-    speedMenu.classList.add("hidden");
-    speedButton.addEventListener("pointerdown", showSpeedMenu);
-    speedButton.removeEventListener("pointerdown", hideSpeedMenu);
-}
-
-document.getElementById("speedButton").addEventListener("pointerdown", showSpeedMenu);
-document.getElementById("hide-speedMenu-overlay-button").addEventListener("pointerup", hideSpeedMenu);
-
-
-function validateSpeedInput() {
-    const errorMessageDiv = document.getElementById("speedMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const speed_inp = document.getElementById("speedInput");
-    const speed = parseFloat(speed_inp.value);
-    if (isNaN(speed) || speed <= 0) {
-        errorMessageDiv.textContent = "Speed must be a positive non-zero float";
-        return false;
+document.addEventListener(
+    "shaderModeToggled", () => {
+        settingsData.shaders.mode = masterRenderer.shader.mode;
+        setShaderModeRadio(masterRenderer.shader.mode);
     }
+);
 
-    speedFactor = speed;
-    return true;
+function updateShaderMode(event) {
+    const shaderMode = event.target.value;
+    masterRenderer.setShaderMode(shaderMode);
+    settingsData.shaders.mode = shaderMode; 
+
+    markUnsavedChanges("low");
+}
+document.getElementById("BasicShader-radio").addEventListener("change", updateShaderMode);
+document.getElementById("SkeletonShader-radio").addEventListener("change", updateShaderMode);
+document.getElementById("PointsShader-radio").addEventListener("change", updateShaderMode);
+document.getElementById("LightingShader-radio").addEventListener("change", updateShaderMode);
+
+
+function workspaceKeyEvents(event) {
+    if (event.ctrlKey) {
+        if (event.key === "c") {
+            copyObject();
+        }
+        else if (event.key === "v") {
+            pasteObject();
+        }
+    }
+    else if (event.key === "Backspace") {
+        deleteObject();
+    }
 }
 
-document.getElementById("speedInput").addEventListener("input", validateSpeedInput);
 
 async function setupPlayer() {
     const response = await communicator.loginFromSessionStorage();
     if (response.status === "ERR") {
         //console.error("Automatic login failed");
-        location.href = "login.html";
+        const serverQuery = communicator.getServerQuery();
+        location.href = "login.html" + serverQuery;
         return;
     }
 
     loadData();
+
+    document.getElementById("toolsTab").addEventListener("pointerup", () => toggleTab("tools"));
+    document.getElementById("modelsTab").addEventListener("pointerup", () => toggleTab("models"));
+    document.getElementById("cameraTab").addEventListener("pointerup", () => toggleTab("camera"));
+    document.getElementById("shadersTab").addEventListener("pointerup", () => toggleTab("shaders"));
 }
 
 setupPlayer();

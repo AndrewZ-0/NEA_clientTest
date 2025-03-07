@@ -1,172 +1,88 @@
 import {GraphicsEngine} from "../AGRE/src/app.js";
-import {masterRenderer, axisRenderer} from "../AGRE/src/core/renderer.js";
+import {masterRenderer} from "../AGRE/src/core/renderer.js";
 import {updateSelectedOverlay} from "../AGRE/src/core/overlays.js";
 import {Sphere, Plane} from "../AGRE/src/objects/objects.js";
 import {communicator} from "./communicator.js";
-import {bindAllControls, unbindAllKeyControls, quickReleaseKeys, selectObject} from "../AGRE/src/core/listeners.js";
+import {bindAllControls, unbindAllKeyControls} from "../AGRE/src/core/listeners.js";
 import {calculateScaledFidelity} from "../AGRE/src/utils/renderProperties.js";
 import * as linearAlgebra from "../AGRE/src/utils/linearAlgebra.js";
-import {camera, cameraMode, setCameraMode} from "../AGRE/src/core/camera.js";
+import {
+    camera, cameraMode, setCameraMode, 
+    setDraggingSensitivity, setCameraMovementSpeed, setCameraRotationSpeed
+} from "../AGRE/src/core/camera.js";
+import {FPS} from "../AGRE/src/core/clock.js";
+import {toggleTab} from "./tabMenu.js";
+import {CreateObjectOverlay} from "./overlays/createObjectOverlay.js";
+import {FindObjectOverlay} from "./overlays/findObjectOverlay.js";
+import {SimulationOverlay} from "./overlays/simulationOverlay.js";
+import {CameraOverlay} from "./overlays/cameraOverlay.js";
+import {SpeedEditOverlay} from "./overlays/speedOverlay.js";
 
+import {GravityEditOverlay} from "./overlays/gravityOverlay.js";
+import {ElectricForceEditOverlay} from "./overlays/eForceOverlay.js";
+import {MagneticForceEditOverlay} from "./overlays/mForceOverlay.js";
+import {CollisionsEditOverlay} from "./overlays/collisionsOverlay.js";
+import {DragEditOverlay} from "./overlays/dragOverlay.js";
+
+import {Player} from "./player.js";
+import {computeFrame} from "../PhimoLive/physicsEngine.js";
 
 let ge;
 let projectData = {
-    "deltaT": null, "noOfFrames": null, 
-    "models": {
-        "gravity": {"compute": true, "G": 6.6743015e-11}, 
-        "eForce": {"compute": true, "E0": 8.854187817e-12}, 
-        "mForce": {"compute": true, "M0": 1.2566370612720e-6}, 
-        "collisions": {"compute": true, "e": 1.0}
+    deltaT: null, 
+    noOfFrames: null, 
+    models: {
+        gravity: {compute: true, G: 6.6743015e-11, g: {x: 0, y: -9.81, z: 0}}, 
+        eForce: {compute: true, E0: 8.854187817e-12, E: {x: 0, y: 0, z: 0}}, 
+        mForce: {compute: true, M0: 1.2566370612720e-6, B: {x: 0, y: 0, z: 0}}, 
+        collisions: {compute: true, e: 1.0}, 
+        drag: {compute: true, rho: 1.225}
     }, 
-    "objects": {}
+    objects: {}
 };
 let settingsData = {
     camera: {
         mode: "Y-Polar", 
-        pose: {r: 10, alt: 0, azi: 0}
+        pose: {r: 10, alt: 0, azi: 0}, 
+        projection : {
+            near: 0.01, 
+            far: 1000,
+            fov: 45
+        },
+        sensitivity: {
+            draggingSensitivity: 0.001, 
+            movementSpeed: 6, 
+            rotationSpeed: 6
+        }
+    }, 
+    shaders: {
+        mode: "basic"
     }
 };
+let cameraOverlay;
+let createObjectOverlay;
+let findObjectOverlay;
+let simulationOverlay;
+let speedOverlay;
+
+let gravityOverlay;
+let eForceOverlay;
+let mForceOverlay;
+let collisionsOverlay;
+let dragOverlay;
+
+let player;
+let objectHeaders = [];
+let frames = [];
+let objectLookup = {};
 
 function returnToDashboard(event) {
-    location.href = "projectDashboard.html";
+    const serverQuery = communicator.getServerQuery();
+    location.href = "projectDashboard.html" + serverQuery;
 }
 
 document.getElementById("titleBarReturnButton").addEventListener("pointerdown", returnToDashboard);
 
-function simulationMenuKeyEvents(event) {
-    if (event.key === "Escape") {
-        const simulationList = document.getElementById("simulationList");
-        if ( simulationList.value !== "") {
-            simulationList.value = "";
-            updateSimulationButtons();
-        }
-        else {
-            hidePlaySimulationMenu();
-        }
-    }
-}
-
-function showPlaySimulationMenu(event) {
-    quickReleaseKeys();
-
-    unbindAllKeyControls();
-    document.getElementById("playSimulationMenu-overlay").classList.remove("hidden");
-
-    loadSimulations();
-    document.addEventListener("keydown", simulationMenuKeyEvents);
-
-    validateSimulaitonConfigEntrys();
-}
-
-function hidePlaySimulationMenu(event) {
-    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    bindAllControls(ge.canvas);
-    document.getElementById("playSimulationMenu-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", simulationMenuKeyEvents);
-}
-
-document.getElementById("playButton").addEventListener("pointerdown", showPlaySimulationMenu);
-document.getElementById("hide-playSimulationMenu-overlay-button").addEventListener("pointerup", hidePlaySimulationMenu);
-
-function updateSimulationButtons() {
-    const simulationList = document.getElementById("simulationList");
-
-    const openSimulationButton = document.getElementById("openSimulation");
-    const deleteSimulationButton = document.getElementById("deleteSimulation");
-    const renameSimulationButton = document.getElementById("renameSimulation");
-
-    if (simulationList.value !== "") {
-        openSimulationButton.disabled = false;
-        deleteSimulationButton.disabled = false;
-        renameSimulationButton.disabled = false;
-
-        openSimulationButton.addEventListener("pointerdown", openSimulation);
-        deleteSimulationButton.addEventListener("pointerdown", deleteSimulation);
-        renameSimulationButton.addEventListener("pointerdown", renameSimulation);
-    }
-    else {
-        openSimulationButton.disabled = true;
-        deleteSimulationButton.disabled = true;
-        renameSimulationButton.disabled = true;
-
-        openSimulationButton.removeEventListener("pointerdown", openSimulation);
-        deleteSimulationButton.removeEventListener("pointerdown", deleteSimulation);
-        renameSimulationButton.removeEventListener("pointerdown", renameSimulation);
-    }
-}
-
-document.getElementById("simulationList").addEventListener("change", updateSimulationButtons);
-
-
-async function loadSimulations() {
-    const projectName = communicator.getProjNameFromUrl();
-    const response = await communicator.list_project_simulations(projectName);
-
-    if (response.status !== "OK") {
-        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-        errorMessageDiv.textContent = `Failed to load simulations: ${response.message}`;
-        return;
-    }
-
-    const simulationList = document.getElementById("simulationList");
-    simulationList.replaceChildren();
-
-    for (const simulation of response.data) {
-        const option = document.createElement("option");
-        option.value = simulation;
-        option.textContent = simulation;
-        simulationList.appendChild(option);
-    }
-
-    updateSimulationButtons();
-}
-
-async function deleteSimulation() {
-    const simulationList = document.getElementById("simulationList");
-    const selectedSimulation = simulationList.value;
-    const projectName = communicator.getProjNameFromUrl();
-
-    const response = await communicator.deleteSimulation(projectName, selectedSimulation);
-
-    if (response.status !== "OK") {
-        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-        errorMessageDiv.textContent = `Failed to delete simulation: ${response.message}`;
-        return;
-    }
-
-    loadSimulations();
-}
-
-async function renameSimulation() {
-    const simulationList = document.getElementById("simulationList");
-    const selectedSimulation = simulationList.value;
-    const newSimulationName = prompt("Enter new simulation name:");
-    const projectName = communicator.getProjNameFromUrl();
-
-    const response = await communicator.renameSimulation(projectName, selectedSimulation, newSimulationName);
-
-    if (response.status !== "OK") {
-        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-        errorMessageDiv.textContent = `Failed to rename simulation: ${response.message}`;
-        return;
-    }
-
-    loadSimulations();
-}
-
-document.getElementById("computeNewSimulationButton").addEventListener("pointerdown", createAndComputeNewSimulation);
-
-async function openSimulation() {
-    const simulationList = document.getElementById("simulationList");
-    const selectedSimulation = simulationList.value;
-    const projectName = communicator.getProjNameFromUrl();
-
-    await communicator.updateAccessSimulationTime(projectName, selectedSimulation);
-
-    window.location.href = `simulationPlayer.html?project=${projectName}&simulation=${selectedSimulation}`;
-}
 
 async function loadData() {
     const projectName = communicator.getProjNameFromUrl();
@@ -209,15 +125,123 @@ async function loadData() {
         }
     }
 
+    objectHeaders.length = 0;
+    for (const [objName, obj] of Object.entries(projectData.objects)) {
+        if (obj.dtype === 0) {
+            objectHeaders.push(objName);
+        }
+    }
+
+    //to prevent setting camera mode from overwriting intial one in setting data
+    const initialCameraPose = settingsData.camera.pose;
+
     ge = new GraphicsEngine(objects, true);
-    ge.start();
 
+    setDraggingSensitivity(settingsData.camera.sensitivity.draggingSensitivity);
+    setCameraMovementSpeed(settingsData.camera.sensitivity.movementSpeed);
+    setCameraRotationSpeed(settingsData.camera.sensitivity.rotationSpeed);
+
+    setCameraModeRadio(settingsData.camera.mode);
+    
     setCameraMode(settingsData.camera.mode);
-    camera.setPose(settingsData.camera.pose);
+    camera.setPose(initialCameraPose);
 
-    camera.forceUpdateCamera(masterRenderer.matricies.view);
-    camera.forceUpdateCamera(axisRenderer.matricies.view);
+    setShaderModeRadio(settingsData.shaders.mode);
+    masterRenderer.setShaderMode(settingsData.shaders.mode);
+
+    for (const obj of masterRenderer.objects) {
+        objectLookup[obj.name] = obj;
+    }
+
+    cameraOverlay = new CameraOverlay(ge, settingsData, markUnsavedChanges);
+
+    cameraOverlay.bindShowCallback(showCameraConfigMenuOverlay);
+    cameraOverlay.bindHideCallback(hideCameraConfigMenuOverlay);
+
+    createObjectOverlay = new CreateObjectOverlay(ge, projectData, settingsData, objectHeaders, objectLookup, markUnsavedChanges, validateObjectBasedInputs);
+    createObjectOverlay.bindShowCallback(showCreateObjectCallback);
+    createObjectOverlay.bindHideCallback(hideCreateObjectCallback);
+    createObjectOverlay.configureObjectEntries();
+
+    findObjectOverlay = new FindObjectOverlay(objectHeaders, objectLookup);
+    findObjectOverlay.bindShowCallback(unbindWorkspace);
+    findObjectOverlay.bindHideCallback(bindWorkspace);
+
+    simulationOverlay = new SimulationOverlay(projectData, saveProjectData, startPhimoLive, stopPhimoLive, reconfigureBuffer);
+    simulationOverlay.bindShowCallback(unbindWorkspace);
+    simulationOverlay.bindHideCallback(bindWorkspace);
+
+    gravityOverlay = new GravityEditOverlay(projectData, markUnsavedChanges);
+    gravityOverlay.bindShowCallback(unbindWorkspace);
+    gravityOverlay.bindHideCallback(bindWorkspace);
+
+    eForceOverlay = new ElectricForceEditOverlay(projectData, markUnsavedChanges);
+    eForceOverlay.bindShowCallback(unbindWorkspace);
+    eForceOverlay.bindHideCallback(bindWorkspace);
+
+    mForceOverlay = new MagneticForceEditOverlay(projectData, markUnsavedChanges);
+    mForceOverlay.bindShowCallback(unbindWorkspace);
+    mForceOverlay.bindHideCallback(bindWorkspace);
+
+    collisionsOverlay = new CollisionsEditOverlay(projectData, markUnsavedChanges);
+    collisionsOverlay.bindShowCallback(unbindWorkspace);
+    collisionsOverlay.bindHideCallback(bindWorkspace);
+
+    dragOverlay = new DragEditOverlay(projectData, markUnsavedChanges);
+    dragOverlay.bindShowCallback(unbindWorkspace);
+    dragOverlay.bindHideCallback(bindWorkspace);
+
+    ge.start();
 }
+
+function startPhimoLive() {
+    document.getElementById("orientationViewport-surface").style.bottom = "40px";
+    document.getElementById("simulationProgressBarContainer").classList.remove("hidden");
+
+    settingsData.speed = 1;
+
+    computeFrame(projectData, frames, 0, true);
+
+    player = new Player(ge, projectData, settingsData, objectHeaders, frames, objectLookup, settingsData.speed, findObjectOverlay.updateFinderListObjects, true);
+
+    player.bindUpdateFrame((frameIndex, unsavedChanges) => {
+        computeFrame(projectData, frames, frameIndex, unsavedChanges);
+        if (masterRenderer.currentSelection !== null) {
+            const renderObject = masterRenderer.objects[masterRenderer.currentSelection];
+            const obj = projectData.objects[renderObject.name];
+
+            if (obj.dtype === 0) {
+                populateObjectDataForm(renderObject);
+            }
+        }
+    });
+
+    speedOverlay = new SpeedEditOverlay(settingsData, player, markUnsavedChanges);
+    speedOverlay.bindShowCallback(showSpeedMenuCallback);
+    speedOverlay.bindHideCallback(hideSpeedMenuCallback);
+}
+
+function stopPhimoLive() {
+    document.getElementById("orientationViewport-surface").style.bottom = "0px";
+    document.getElementById("simulationProgressBarContainer").classList.add("hidden");
+
+    player.pauseSimulation();
+    player = null;
+    speedOverlay = null;
+}
+
+function reconfigureBuffer() {
+    if (player) {
+        if (frames.length > projectData.noOfFrames) {
+            frames.splice(0, frames.length - projectData.noOfFrames);
+
+            player.currentFrame = player.frames.length - 1;
+            player.cumlitiveStart = (frames.length - projectData.noOfFrames) / FPS;
+        }
+        player.displayFrame(player.currentFrame);
+    }
+}
+
 
 function showProjectDataMenu() {
     document.getElementById("projectDataMenu").classList.remove("hidden");
@@ -234,157 +258,59 @@ function hideProjectDataMenu() {
 document.getElementById("titlebar-project-name").addEventListener("pointerdown", showProjectDataMenu);
 
 
-let currentSelection = null;
-function toggleTab(tabId) {
-    const tab = document.getElementById(tabId + "Tab");
-    const tabMenu = document.getElementById(tabId + "Menu");
-    const overlays = document.getElementById("overlays");
-
-    if (tabId === currentSelection) {
-        tab.classList.remove("focus");
-        tabMenu.classList.add("hidden");
-
-        overlays.style.left = "0px";
-
-        currentSelection = null;   
-    }
-    else {
-        if (currentSelection !== null) {
-            document.getElementById(currentSelection + "Tab").classList.remove("focus");
-            document.getElementById(currentSelection + "Menu").classList.add("hidden");
-        }
-        else {
-            overlays.style.left = "120px";
-        }
-
-        tab.classList.add("focus");
-        tabMenu.classList.remove("hidden");
-
-        currentSelection = tabId;
+function setCameraModeRadio(mode) {
+    const radio = document.querySelector(`input[name = 'cameraMode'][value = '${mode}']`);
+    if (radio) {
+        radio.checked = true;
     }
 }
 
-//probably should fix this later to make it less vomit enducing to look at...
-document.getElementById("toolsTab").addEventListener("pointerup", () => toggleTab("tools"));
-document.getElementById("modelsTab").addEventListener("pointerup", () => toggleTab("models"));
-document.getElementById("cameraTab").addEventListener("pointerup", () => toggleTab("camera"));
-document.getElementById("shadersTab").addEventListener("pointerup", () => toggleTab("shaders"));
-
-
-function createObjectFromCreateNewObjectEntries() {
-    const name = document.getElementById("create-objectName").value;
-
-    if (name in projectData.objects) {
-        const errorMessageDiv = document.getElementById("create-object-error-message");
-        errorMessageDiv.textContent = "Object name is taken.";
-        return;
+document.addEventListener(
+    "cameraModeToggled", () => {
+        settingsData.camera.mode = cameraMode;
+        settingsData.camera.pose = camera.getPose();
+        setCameraModeRadio(cameraMode);
     }
+);
 
-    if (! validateObjectBasedInputs("create-")) {
-        return;
-    }
 
-    let newObject;
-    const objectType = document.getElementById("create-objectType").value;
-    if (objectType === "0") {
-        const position = [
-            parseFloat(document.getElementById("create-position-x").value),
-            parseFloat(document.getElementById("create-position-y").value),
-            parseFloat(document.getElementById("create-position-z").value)
-        ];
-        const velocity = [
-            parseFloat(document.getElementById("create-velocity-x").value),
-            parseFloat(document.getElementById("create-velocity-y").value),
-            parseFloat(document.getElementById("create-velocity-z").value)
-        ];
-
-        const radius = parseFloat(document.getElementById("create-radius").value);
-        const mass = parseFloat(document.getElementById("create-mass").value);
-        const charge = parseFloat(document.getElementById("create-charge").value);
-        const colour = hexToVec3(document.getElementById("create-colour").value);
-
-        const fidelity = calculateScaledFidelity(radius);
-        newObject = new Sphere(name, ...position, radius, fidelity, colour);
-
-        projectData.objects[name] = {
-            dtype: 0,
-            position, velocity,
-            radius, mass, charge, colour
-        };
-    }
-    else if (objectType === "1") {
-        const position = [
-            parseFloat(document.getElementById("create-position-x").value),
-            parseFloat(document.getElementById("create-position-y").value),
-            parseFloat(document.getElementById("create-position-z").value)
-        ];
-
-        const dimentions = [
-            parseFloat(document.getElementById("create-length").value), 
-            parseFloat(document.getElementById("create-width").value)
-        ]
-
-        const orientation = [
-            linearAlgebra.toRadian(parseFloat(document.getElementById("create-pitch").value)), 
-            linearAlgebra.toRadian(parseFloat(document.getElementById("create-yaw").value)), 
-            linearAlgebra.toRadian(parseFloat(document.getElementById("create-roll").value))
-        ]
-
-        const charge = parseFloat(document.getElementById("create-charge").value);
-        const colour = hexToVec3(document.getElementById("create-colour").value);
-
-        newObject = new Plane(name, ...position, ...dimentions, ...orientation, colour);
-
-        projectData.objects[name] = {
-            dtype: 1,
-            position, dimentions, orientation, 
-            charge, colour
-        };
-    }
-
-    masterRenderer.objects.push(newObject);
-    masterRenderer.quickInitialise(masterRenderer.objects);
-    ge.quickAnimationStart();
-
-    markUnsavedChanges("high");
-    hideCreateObjectOverlay();
-}
-
-function configureCreateObjectEntries() {
-    const inputGroups = document.getElementById("createNewObject-form").querySelectorAll(".input-group");
-    for (const inputGroup of inputGroups) {
-        inputGroup.classList.add("hidden");
-    }
-
-    const objectType = document.getElementById("create-objectType").value;
-
-    if (objectType === "0") {
-        document.getElementById("create-position-group").classList.remove("hidden");
-        document.getElementById("create-velocity-group").classList.remove("hidden");
-        document.getElementById("create-radius-group").classList.remove("hidden");
-        document.getElementById("create-mass-group").classList.remove("hidden");
-        document.getElementById("create-charge-group").classList.remove("hidden");
-        document.getElementById("create-colour-group").classList.remove("hidden");
-    }
-    else if (objectType === "1") {
-        document.getElementById("create-position-group").classList.remove("hidden");
-        document.getElementById("create-dimentions-group").classList.remove("hidden");
-        document.getElementById("create-orientation-group").classList.remove("hidden");
-        document.getElementById("create-charge-group").classList.remove("hidden");
-        document.getElementById("create-colour-group").classList.remove("hidden");
+function setShaderModeRadio(mode) {
+    const radio = document.querySelector(`input[name = 'shaderMode'][value = '${mode}']`);
+    if (radio) {
+        radio.checked = true;
     }
 }
 
-document.getElementById("create-objectType-group").addEventListener("input", configureCreateObjectEntries);
-
-function createObjectOverlayKeyEvents(event) {
-    if (event.key === "Escape") {
-        hideCreateObjectOverlay();
-    } 
-    else if (event.key === "Enter") {
-        createObjectFromCreateNewObjectEntries();
+document.addEventListener(
+    "shaderModeToggled", () => {
+        settingsData.shaders.mode = masterRenderer.shader.name;
+        setShaderModeRadio(masterRenderer.shader.name);
     }
+);
+
+function updateShaderMode(event) {
+    const shaderMode = event.target.value;
+    masterRenderer.setShaderMode(shaderMode);
+    settingsData.shaders.mode = shaderMode; 
+
+    markUnsavedChanges("low");
 }
+document.getElementById("BasicShader-radio").addEventListener("change", updateShaderMode);
+document.getElementById("SkeletonShader-radio").addEventListener("change", updateShaderMode);
+document.getElementById("PointsShader-radio").addEventListener("change", updateShaderMode);
+document.getElementById("LightingShader-radio").addEventListener("change", updateShaderMode);
+
+
+function showCreateObjectCallback() {
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workspaceKeyEvents);
+}
+
+function hideCreateObjectCallback() {
+    bindAllControls(ge.canvas);
+    document.addEventListener("keydown", workspaceKeyEvents);
+}
+
 
 let objectClipboard;
 let copyCount = 0;
@@ -408,6 +334,9 @@ function createObjectFromModelData(name, newObjectModel) {
         const radius = newObjectModel.radius;
         const fidelity = calculateScaledFidelity(radius);
         newObject = new Sphere(name, ...newObjectModel.position, radius, fidelity, newObjectModel.colour);
+
+        objectHeaders.push(name);
+        objectLookup[name] = newObject;
     }
     else if (newObjectModel.dtype === 1) {
         newObject = new Plane(
@@ -426,7 +355,6 @@ function createObjectFromModelData(name, newObjectModel) {
     ge.quickAnimationStart();
 
     markUnsavedChanges("high");
-    hideCreateObjectOverlay();
 }
 
 function pasteObject() {
@@ -469,7 +397,7 @@ function pasteObject() {
 document.getElementById("pasteObject-button").addEventListener("pointerdown", pasteObject);
 
 
-function workbenchKeyEvents(event) {
+function workspaceKeyEvents(event) {
     if (event.ctrlKey) {
         if (event.key === "c") {
             copyObject();
@@ -483,489 +411,82 @@ function workbenchKeyEvents(event) {
     }
 }
 
-document.getElementById("createObject-button").addEventListener("pointerup", createObjectFromCreateNewObjectEntries);
-
-function showCreateObjectOverlay() {
-    quickReleaseKeys();
-
+function unbindWorkspace() {
     unbindAllKeyControls();
-    document.removeEventListener("keydown", workbenchKeyEvents);
-    document.getElementById("createObject-overlay").classList.remove("hidden");
-    document.addEventListener("keydown", createObjectOverlayKeyEvents); 
-
-    fillObjectNameOnCreateObjectOverlay();
+    document.removeEventListener("keydown", workspaceKeyEvents);
 }
-
-function hideCreateObjectOverlay() {
-    const errorMessageDiv = document.getElementById("create-object-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    document.getElementById("create-objectName").value = "";
-
-    document.getElementById("createObject-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", createObjectOverlayKeyEvents);
-
+function bindWorkspace() {
+    document.addEventListener("keydown", workspaceKeyEvents);
     bindAllControls(ge.canvas);
-
-    document.addEventListener("keydown", workbenchKeyEvents);
 }
 
-function findObjectOverlayKeyEvents(event) {
-    if (event.key === "Escape") {
-        const objectsList = document.getElementById("objectsList");
-
-        if (objectsList.value !== "") {
-            objectsList.value = "";
-        }
-        else {
-            hideFindObjectOverlay();
-        }
-    }
-}
-
-
-function showFindObjectOverlay() {
-    quickReleaseKeys();
-
-    unbindAllKeyControls();
-    document.removeEventListener("keydown", workbenchKeyEvents);
-    document.getElementById("findObject-overlay").classList.remove("hidden");
-    document.addEventListener("keydown", findObjectOverlayKeyEvents);
-
-    loadObjectsToFinderList();
-}
-
-function hideFindObjectOverlay() {
-    const errorMessageDiv = document.getElementById("find-object-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    document.getElementById("findObject-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", findObjectOverlayKeyEvents);
-
-    bindAllControls(ge.canvas);
-
-    document.addEventListener("keydown", workbenchKeyEvents);
-}
-
-document.getElementById("openFindObjectMenu-button").addEventListener("pointerdown", showFindObjectOverlay);
-document.getElementById("hide-findObject-overlay-button").addEventListener("pointerup", hideFindObjectOverlay);
-
-
-async function loadObjectsToFinderList() {
-    const objectList = document.getElementById("objectsList");
-    objectList.replaceChildren();
-
-    for (const [name, value] of Object.entries(projectData.objects)) {
-        const option = document.createElement("option");
-
-        let typeName;
-        if (value.dtype == 0) {
-            typeName = "particle";
-        }
-        else if (value.dtype == 1) {
-            typeName = "plane";
-        }
-
-        let pos = {
-            x: Math.round(value.position[0] * 1000) / 1000,
-            y: Math.round(value.position[1] * 1000) / 1000,
-            z: Math.round(value.position[2] * 1000) / 1000, 
-        }
-
-        if (pos.x !== value.position[0]) {
-            pos.x += "...";
-        }
-        if (pos.y !== value.position[1]) {
-            pos.y += "...";
-        }
-        if (pos.z !== value.position[2]) {
-            pos.z += "...";
-        }
-
-        option.value = name;
-        option.textContent = `${typeName}: ${name} {x: ${pos.x}, y: ${pos.y}, z: ${pos.z}}`;
-        objectList.appendChild(option);
-    }
-}
-
-
-function selectFoundObject() {
-    const objectsList = document.getElementById("objectsList");
-    const selectedObject = objectsList.value;
-
-    if (! selectedObject) {
-        const errorMessageDiv = document.getElementById("find-object-error-message");
-        errorMessageDiv.textContent = "No object selected";
-        return;
-    }
-
-    const noOfObjects = masterRenderer.objects.length;
-    for (let i = 0; i < noOfObjects; i++) {
-        if (masterRenderer.objects[i].name === selectedObject) {
-            if (masterRenderer.currentSelection !== i) {
-                selectObject(i);
-            }
-            break;
-        }
-    }
-
-    hideFindObjectOverlay();
-}
-
-document.getElementById("selectFoundObject-button").addEventListener("pointerup", selectFoundObject)
-
-
-function loadGravitationalConstant() {
-    document.getElementById("gravitationalConstant-input").value = projectData.models.gravity.G;
-}
-
-function gravityMenuOverlayKeyEvents(event) {
-    if (event.key === "Escape") {
-        hideGravityMenuOverlay();
-    }
-}
-
-function showGravityMenuOverlay() {
-    quickReleaseKeys();
-
-    unbindAllKeyControls();
-    document.removeEventListener("keydown", workbenchKeyEvents);
-    document.getElementById("gravityMenu-overlay").classList.remove("hidden");
-    document.addEventListener("keydown", gravityMenuOverlayKeyEvents);
-
-    loadGravitationalConstant();
-}
-
-function hideGravityMenuOverlay() {
-    const errorMessageDiv = document.getElementById("gravityMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    document.getElementById("gravityMenu-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", gravityMenuOverlayKeyEvents);
-
-    bindAllControls(ge.canvas);
-
-    document.addEventListener("keydown", workbenchKeyEvents);
-}
-
-document.getElementById("openGravityMenu-button").addEventListener("pointerdown", showGravityMenuOverlay);
-document.getElementById("hide-gravityMenu-overlay-button").addEventListener("pointerup", hideGravityMenuOverlay);
-
-
-function setGravitationalConstant() {
-    if (! validateGravitationalConstant()) {
-        return;
-    }
-
-    const G = parseFloat(document.getElementById("gravitationalConstant-input").value);
-
-    projectData.models.gravity.G = G;
-    markUnsavedChanges("high");
-
-    hideGravityMenuOverlay();
-}
-
-function validateGravitationalConstant() {
-    const errorMessageDiv = document.getElementById("gravityMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const G = parseFloat(document.getElementById("gravitationalConstant-input").value);
-
-    if (isNaN(G)) {
-        errorMessageDiv.textContent = "Gravitational constant must be a float";
-        return false;
-    }
-    return true;
-}
-
-document.getElementById("gravitationalConstant-input").addEventListener("input", validateGravitationalConstant);
-document.getElementById("configureGravity-button").addEventListener("pointerup", setGravitationalConstant);
-
-
-
-function loadVacuumPermittivity() {
-    document.getElementById("vacuumPermittivity-input").value = projectData.models.eForce.E0;
-}
-
-function eForceMenuOverlayKeyEvents(event) {
-    if (event.key === "Escape") {
-        hideEForceMenuOverlay();
-    }
-}
-
-function showEForceMenuOverlay() {
-    quickReleaseKeys();
-
-    unbindAllKeyControls();
-    document.removeEventListener("keydown", workbenchKeyEvents);
-    document.getElementById("eForceMenu-overlay").classList.remove("hidden");
-    document.addEventListener("keydown", eForceMenuOverlayKeyEvents);
-
-    loadVacuumPermittivity();
-}
-
-function hideEForceMenuOverlay() {
-    const errorMessageDiv = document.getElementById("eForceMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    document.getElementById("eForceMenu-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", eForceMenuOverlayKeyEvents);
-
-    bindAllControls(ge.canvas);
-
-    document.addEventListener("keydown", workbenchKeyEvents);
-}
-
-document.getElementById("openEForceMenu-button").addEventListener("pointerdown", showEForceMenuOverlay);
-document.getElementById("hide-eForceMenu-overlay-button").addEventListener("pointerup", hideEForceMenuOverlay);
-
-
-function setVacuumPermittivity() {
-    if (! validateVacuumPermittivity()) {
-        return;
-    }
-
-    const E0 = parseFloat(document.getElementById("vacuumPermittivity-input").value);
-
-    projectData.models.eForce.E0 = E0;
-    markUnsavedChanges("high");
-
-    hideEForceMenuOverlay();
-}
-
-function validateVacuumPermittivity() {
-    const errorMessageDiv = document.getElementById("eForceMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const E0 = parseFloat(document.getElementById("vacuumPermittivity-input").value);
-
-    if (isNaN(E0)) {
-        errorMessageDiv.textContent = "Vacuum permittivity must be a float";
-        return false;
-    }
-    return true;
-}
-
-document.getElementById("vacuumPermittivity-input").addEventListener("input", validateVacuumPermittivity);
-document.getElementById("configureEForce-button").addEventListener("pointerup", setVacuumPermittivity);
-
-
-
-
-function loadVacuumPermeability() {
-    document.getElementById("vacuumPermeability-input").value = projectData.models.mForce.M0;
-}
-
-function mForceMenuOverlayKeyEvents(event) {
-    if (event.key === "Escape") {
-        hideMForceMenuOverlay();
-    }
-}
-
-function showMForceMenuOverlay() {
-    quickReleaseKeys();
-
-    unbindAllKeyControls();
-    document.removeEventListener("keydown", workbenchKeyEvents);
-    document.getElementById("mForceMenu-overlay").classList.remove("hidden");
-    document.addEventListener("keydown", mForceMenuOverlayKeyEvents);
-
-    loadVacuumPermeability();
-}
-
-function hideMForceMenuOverlay() {
-    const errorMessageDiv = document.getElementById("mForceMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    document.getElementById("mForceMenu-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", mForceMenuOverlayKeyEvents);
-
-    bindAllControls(ge.canvas);
-
-    document.addEventListener("keydown", workbenchKeyEvents);
-}
-
-document.getElementById("openMForceMenu-button").addEventListener("pointerdown", showMForceMenuOverlay);
-document.getElementById("hide-mForceMenu-overlay-button").addEventListener("pointerup", hideMForceMenuOverlay);
-
-
-function setVacuumPermeability() {
-    if (! validateVacuumPermeability()) {
-        return;
-    }
-
-    const M0 = parseFloat(document.getElementById("vacuumPermeability-input").value);
-
-    projectData.models.mForce.M0 = M0;
-    markUnsavedChanges("high");
-
-    hideMForceMenuOverlay();
-}
-
-function validateVacuumPermeability() {
-    const errorMessageDiv = document.getElementById("mForceMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const M0 = parseFloat(document.getElementById("vacuumPermeability-input").value);
-
-    if (isNaN(M0)) {
-        errorMessageDiv.textContent = "Vacuum permeability must be a float";
-        return false;
-    }
-    return true;
-}
-
-document.getElementById("vacuumPermeability-input").addEventListener("input", validateVacuumPermeability);
-document.getElementById("configureMForce-button").addEventListener("pointerup", setVacuumPermeability);
-
-
-function loadCoefficientOfRestitution() {
-    document.getElementById("coefficientOfRestitution-input").value = projectData.models.collisions.e;
-}
-
-function collisionsMenuOverlayKeyEvents(event) {
-    if (event.key === "Escape") {
-        hideCollisionsMenuOverlay();
-    }
-}
-
-function showCollisionsMenuOverlay() {
-    quickReleaseKeys();
-
-    unbindAllKeyControls();
-    document.removeEventListener("keydown", workbenchKeyEvents);
-    document.getElementById("collisionsMenu-overlay").classList.remove("hidden");
-    document.addEventListener("keydown", collisionsMenuOverlayKeyEvents);
-
-    loadCoefficientOfRestitution();
-}
-
-function hideCollisionsMenuOverlay() {
-    const errorMessageDiv = document.getElementById("collisionsMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    document.getElementById("collisionsMenu-overlay").classList.add("hidden");
-    document.removeEventListener("keydown", collisionsMenuOverlayKeyEvents);
-
-    bindAllControls(ge.canvas);
-
-    document.addEventListener("keydown", workbenchKeyEvents);
-}
-
-document.getElementById("openCollisionsMenu-button").addEventListener("pointerdown", showCollisionsMenuOverlay);
-document.getElementById("hide-collisionsMenu-overlay-button").addEventListener("pointerup", hideCollisionsMenuOverlay);
-
-
-function setCoefficientOfRestitution() {
-    if (! validateCoefficientOfRestitution()) {
-        return;
-    }
-
-    const e = parseFloat(document.getElementById("coefficientOfRestitution-input").value);
-
-    projectData.models.collisions.e = e;
-    markUnsavedChanges("high");
-
-    hideCollisionsMenuOverlay();
-}
-
-function validateCoefficientOfRestitution() {
-    const errorMessageDiv = document.getElementById("collisionsMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const e = parseFloat(document.getElementById("coefficientOfRestitution-input").value);
-
-    if (isNaN(e) || e < 0) {
-        errorMessageDiv.textContent = "Coefficient of restitution constant must be a positive float";
-        return false;
-    }
-    return true;
-}
-
-document.getElementById("coefficientOfRestitution-input").addEventListener("input", validateCoefficientOfRestitution);
-document.getElementById("configureCollisions-button").addEventListener("pointerup", setCoefficientOfRestitution);
-
-
-
-function hexToVec3(colourHex) {
-    const r = parseInt(colourHex.slice(1, 3), 16) / 255;
-    const g = parseInt(colourHex.slice(3, 5), 16) / 255;
-    const b = parseInt(colourHex.slice(5, 7), 16) / 255;
-
-    return [r, g, b];
-}
-
-function vec3ToHex(colourVec3) {
-    const r = Math.round(colourVec3[0] * 255).toString(16).padStart(2, "0");
-    const g = Math.round(colourVec3[1] * 255).toString(16).padStart(2, "0");
-    const b = Math.round(colourVec3[2] * 255).toString(16).padStart(2, "0");
-
-    return "#" + r + g + b;
-}
 
 let unsavedChanges = false;
 function markUnsavedChanges(priority) {
     if (!unsavedChanges) {
+        const saveProjectButton = document.getElementById("saveProjectButton");
         const badge = document.querySelector("#saveProjectButton .badge");
         badge.classList.remove("hidden", "lowPriority", "highPriority");
 
         if (priority === "high") {
             badge.classList.add("highPriority");
+            saveProjectButton.title = "Save Project Data to Server (You currently have unsaved high priority changes: such as object data)";
+
+            if (player) {
+                player.unsavedChanges = true;
+            }
         }
         else if (priority === "low") {
             badge.classList.add("lowPriority");
+            saveProjectButton.title = "Save Project Data to Server (You currently have unsaved low priority changes: such as camera position)";
         }
 
         unsavedChanges = priority;
     }
     else if (priority === "high") {
+        const saveProjectButton = document.getElementById("saveProjectButton");
         const badge = document.querySelector("#saveProjectButton .badge");
         badge.classList.remove("hidden", "lowPriority", "highPriority");
 
         badge.classList.add("highPriority");
+        saveProjectButton.title = "Save Project Data to Server (You currently have unsaved high priority changes: such as object data)";
         unsavedChanges = priority;
+
+        if (player) {
+            player.unsavedChanges = true;
+        }
     }
 }
+
 function clearUnsavedChanges() {
     if (unsavedChanges !== false) {
+        const saveProjectButton = document.getElementById("saveProjectButton");
         const badge = document.querySelector("#saveProjectButton .badge");
         badge.classList.remove("lowPriority", "highPriority");
         badge.classList.add("hidden");
         unsavedChanges = false;
-    }
-}
 
-document.addEventListener("cameraUpdated", () => {markUnsavedChanges("low")})
+        saveProjectButton.title = "Save Project Data to Server (You currently have unsaved no unsaved changes)";
 
-
-for (const element of document.getElementsByClassName("create-input")) {
-    element.addEventListener("input", () => validateObjectBasedInputs("create-"));
-}
-
-function fillObjectNameOnCreateObjectOverlay() {
-    const currName = document.getElementById("create-objectName").value;
-
-    if (currName === "") {
-        let newName = "Unnamed";
-
-        if (newName in projectData.objects || newName.toLowerCase() in projectData.objects) {
-            let i = 2;
-            while (newName + i in projectData.objects || newName.toLowerCase() + i in projectData.objects) {
-                i++;
-            }
-
-            newName += i;
+        if (player) {
+            player.unsavedChanges = false;
         }
-
-        document.getElementById("create-objectName").value = newName;
     }
-    
 }
+
+function handleCameraUpdate() {
+    settingsData.camera.pose = camera.getPose();
+    markUnsavedChanges("low");
+}
+document.addEventListener("cameraUpdated", handleCameraUpdate);
+
 
 function deleteObject() {
     if (masterRenderer.currentSelection !== null) {
         const name = masterRenderer.objects[masterRenderer.currentSelection].name;
         delete projectData.objects[name];
+        objectHeaders.splice(name, 1);
+        delete objectLookup[name];
 
         masterRenderer.objects.splice(masterRenderer.currentSelection, 1);
         masterRenderer.currentSelection = null;
@@ -1009,7 +530,8 @@ function populateObjectDataForm(object) {
         document.getElementById("edit-radius").value = projectData.objects[object.name].radius;
         document.getElementById("edit-mass").value = projectData.objects[object.name].mass;
         document.getElementById("edit-charge").value = projectData.objects[object.name].charge;
-        document.getElementById("edit-colour").value = vec3ToHex(projectData.objects[object.name].colour);
+        document.getElementById("edit-dragCoefficient").value = projectData.objects[object.name].dragCoef;
+        document.getElementById("edit-colour").value = linearAlgebra.vec3ToHex(projectData.objects[object.name].colour);
     }
     else if (objectType === 1) {
         dtype = "Plane"
@@ -1023,7 +545,7 @@ function populateObjectDataForm(object) {
         document.getElementById("edit-yaw").value = linearAlgebra.toDegree(projectData.objects[object.name].orientation[1]);
         document.getElementById("edit-roll").value = linearAlgebra.toDegree(projectData.objects[object.name].orientation[2]);
         document.getElementById("edit-charge").value = projectData.objects[object.name].charge;
-        document.getElementById("edit-colour").value = vec3ToHex(projectData.objects[object.name].colour);
+        document.getElementById("edit-colour").value = linearAlgebra.vec3ToHex(projectData.objects[object.name].colour);
     }
     document.getElementById("edit-objectType").value = dtype;
 }
@@ -1044,6 +566,7 @@ function configureObjectDataForm(object) {
         document.getElementById("edit-radius-group").classList.remove("hidden");
         document.getElementById("edit-mass-group").classList.remove("hidden");
         document.getElementById("edit-charge-group").classList.remove("hidden");
+        document.getElementById("edit-dragCoefficient-group").classList.remove("hidden");
         document.getElementById("edit-colour-group").classList.remove("hidden");
     }
     else if (objectType === 1) {
@@ -1065,7 +588,7 @@ function validateObjectBasedInputs(prefix) {
     if (!nameRegex.test(name)) {
         errorMessageDiv.textContent = `Object name (${name}) is invalid. Only characters (A-Z, a-z, _ and 0-9) are allowed`;
         return false;
-    } 
+    }
 
     const axes = ["x", "y", "z"];
     const orientations = ["pitch", "yaw", "roll"];
@@ -1147,6 +670,15 @@ function validateObjectBasedInputs(prefix) {
         }
     }
 
+    if (! document.getElementById(`${prefix}dragCoefficient-group`).classList.contains("hidden")) {
+        const dragCoefInp = document.getElementById(`${prefix}dragCoefficient`);
+        const dragCoef = parseFloat(dragCoefInp.value);
+        if (isNaN(dragCoef) || dragCoef < 0) {
+            errorMessageDiv.textContent = "Drag Coefficient must be a positive non-zero float";
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -1160,6 +692,12 @@ function updateObjectData() {
     const dtype = projectData.objects[oldObjectName].dtype;
 
     const name = document.getElementById("edit-objectName").value;
+
+    if (name !== oldObjectName && objectHeaders.includes(name)) {
+        const errorMessageDiv = document.getElementById("edit-object-error-message");
+        errorMessageDiv.textContent = `Object name is already in use.`;
+        return;
+    }
 
     if (dtype === 0) {
         const radius = parseFloat(document.getElementById("edit-radius").value);
@@ -1176,7 +714,8 @@ function updateObjectData() {
         }
         const mass = parseFloat(document.getElementById("edit-mass").value);
         const charge = parseFloat(document.getElementById("edit-charge").value);
-        const colour = hexToVec3(document.getElementById("edit-colour").value);
+        const dragCoef = parseFloat(document.getElementById("edit-dragCoefficient").value);
+        const colour = linearAlgebra.hexToVec3(document.getElementById("edit-colour").value);
 
         //update view data
         selectedObject.name = name;
@@ -1190,13 +729,18 @@ function updateObjectData() {
         //update model data
         if (oldObjectName !== name) {
             delete projectData.objects[oldObjectName];
+            const i = objectHeaders.indexOf(oldObjectName);
+            objectHeaders[i] = name;
             projectData.objects[name] = {};
+            delete objectLookup[oldObjectName];
+            objectLookup[name] = masterRenderer.objects[i];
         }
         projectData.objects[name].position = [position.x, position.y, position.z];
         projectData.objects[name].velocity = [velocity.x, velocity.y, velocity.z];
         projectData.objects[name].radius = radius;
         projectData.objects[name].mass = mass;
         projectData.objects[name].charge = charge;
+        projectData.objects[name].dragCoef = dragCoef;
         projectData.objects[name].colour = colour;
         projectData.objects[name].dtype = dtype;
     }
@@ -1216,7 +760,7 @@ function updateObjectData() {
             width: parseFloat(document.getElementById("edit-width").value)
         }
         const charge = parseFloat(document.getElementById("edit-charge").value);
-        const colour = hexToVec3(document.getElementById("edit-colour").value);
+        const colour = linearAlgebra.hexToVec3(document.getElementById("edit-colour").value);
 
         //update view data
         selectedObject.name = name;
@@ -1288,6 +832,7 @@ function configureModelDataToggles() {
     document.getElementById("eForce-toggle").checked = projectData.models.eForce.compute;
     document.getElementById("mForce-toggle").checked = projectData.models.mForce.compute;
     document.getElementById("collisions-toggle").checked = projectData.models.collisions.compute;
+    document.getElementById("drag-toggle").checked = projectData.models.drag.compute;
 }
 
 function updateModelData(event) {
@@ -1295,6 +840,7 @@ function updateModelData(event) {
     projectData.models.eForce.compute = document.getElementById("eForce-toggle").checked;
     projectData.models.mForce.compute = document.getElementById("mForce-toggle").checked;
     projectData.models.collisions.compute = document.getElementById("collisions-toggle").checked;
+    projectData.models.drag.compute = document.getElementById("drag-toggle").checked;
 
     markUnsavedChanges("high");
 }
@@ -1308,14 +854,6 @@ document.addEventListener("objectMoved", recordObjectMovement);
 
 async function saveProjectData() {
     const projectName = communicator.getProjNameFromUrl();
-
-    settingsData.camera.mode = cameraMode;
-    if (cameraMode === "Y-Polar") {
-        settingsData.camera.pose = {r: camera.r, alt: camera.alt, azi: camera.azi};
-    }
-    else { //Y-Cartesian or Quaternion
-        settingsData.camera.pose = {coords: camera.coords, orientation: camera.orientation};
-    }
 
     //super jank solution to merge the two surfaces when screenshotting (courtesty of stack overflow)
     const modelSurface = document.getElementById("model-surface");
@@ -1340,210 +878,18 @@ async function saveProjectData() {
     }
 }
 
-document.getElementById("openCreateObjectMenu-button").addEventListener("pointerdown", showCreateObjectOverlay);
-document.getElementById("hide-createObject-overlay-button").addEventListener("pointerup", hideCreateObjectOverlay);
 
 document.getElementById("deleteObject-button").addEventListener("pointerdown", deleteObject);
-document.addEventListener("keydown", workbenchKeyEvents);
+document.addEventListener("keydown", workspaceKeyEvents);
 
 document.getElementById("saveProjectButton").addEventListener("pointerdown", saveProjectData);
 
-
-
-
-let currentActiveWorkerId = null;
-let currentComputingSimulationName = null;
-
-let progressUpdateInterval;
-let currentProgressTimeout;
-let lastProgress;
-let start_t;
-
-async function updateComputingProgress() {
-    const response = await communicator.getComputingProgress(currentActiveWorkerId);
-
-    if (response.status !== "OK") {
-        const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-        errorMessageDiv.textContent = `Failed to get simulation computing progress: ${response.message}`;
-        return;
-    }
-
-    const progress = response.progress;
-
-    if (progress === "COMPUTATION COMPLETE") {
-        document.getElementById("computeProgress").classList.add("hidden");
-        document.getElementById("stopComputingButton").classList.add("hidden");
-        document.getElementById("computeNewSimulationButton").classList.remove("hidden");
-        document.getElementById("simulationConfigs").classList.remove("hidden");
-        currentActiveWorkerId = null;
-        currentComputingSimulationName = null;
-
-        document.getElementById("computeProgressBar-progress").style.width = "0%";
-
-        loadSimulations();   
-    } 
-    else {
-        const progressBar = document.getElementById("computeProgressBar-progress");
-        
-        const deltaProgress = progress - lastProgress;
-
-        lastProgress = progress;
-
-        const expectedComputeTime = (1 - progress) / deltaProgress * progressUpdateInterval;
-        const days = Math.floor(expectedComputeTime / 86400000);
-        const hours = Math.floor((expectedComputeTime % 86400000) / 3600000);
-        const minutes = Math.floor((expectedComputeTime % 3600000) / 60000);
-        const seconds = Math.floor((expectedComputeTime % 60000) / 1000);
-
-        const totalTimeEstimate = (Date.now() - start_t) / progress;
-
-        let waitTimeText = "Approx wait time: ";
-        if (days > 0) {
-            waitTimeText += `${days}d ${hours}h ${minutes}m `;
-        }
-        else if (hours > 0) { 
-            waitTimeText += `${hours}h ${minutes}m `;
-        }
-        else if (minutes > 0) {
-            waitTimeText += `${minutes}m `;
-        }
-        waitTimeText += `${seconds}s`;
-
-        document.getElementById("compute-approximateWaitTime").textContent = waitTimeText;
-
-
-        progressUpdateInterval = totalTimeEstimate / Math.cbrt(totalTimeEstimate);
-        progressUpdateInterval = Math.round(progressUpdateInterval);
-
-        progressBar.style.transitionDuration = `${progressUpdateInterval}ms`;
-
-        const progressPercentage = progress * 100;
-
-        document.getElementById("computeProgressText").textContent = `${progressPercentage.toFixed(2)}%`;
-
-        progressBar.style.width = `${progressPercentage}%`;
-
-        currentProgressTimeout = setTimeout(updateComputingProgress, progressUpdateInterval);
-    }
-}
-
-async function stopComputingSimulation() {
-    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const projectName = communicator.getProjNameFromUrl();
-
-    const response = await communicator.stopComputing(
-        projectName, currentComputingSimulationName, currentActiveWorkerId
-    );
-
-    if (response.status !== "OK") {
-        errorMessageDiv.textContent = `Failed to stop Computing: ${response.message}`;
-        return;
-    }
-
-    currentComputingSimulationName = null;
-
-    clearTimeout(currentProgressTimeout);
-
-
-    document.getElementById("computeProgress").classList.add("hidden");
-    document.getElementById("stopComputingButton").classList.add("hidden");
-    document.getElementById("computeNewSimulationButton").classList.remove("hidden");
-    document.getElementById("simulationConfigs").classList.remove("hidden");
-
-    if (currentActiveWorkerId) {
-        currentActiveWorkerId = null;
-        loadSimulations();
-    }
-}
-
-async function createAndComputeNewSimulation() {
-    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-    if (! validateSimulaitonConfigEntrys()) {
-        return;
-    }
-
-    const projectName = communicator.getProjNameFromUrl();
-
-    projectData.deltaT = parseFloat(document.getElementById("deltaT").value);
-    projectData.noOfFrames = parseInt(document.getElementById("noOfFrames").value);
-    projectData.stepsPerFrame = parseInt(document.getElementById("stepsPerFrame").value);
-
-    saveProjectData();
-
-    const newSimulationName = prompt("Enter new simulation name:");
-
-    if (newSimulationName === "") {
-        errorMessageDiv.textContent = "No name provided for new simulation.";
-        return;
-    }
-    if (newSimulationName === null) {
-        return; //exited prompt
-    }
-
-    const response = await communicator.startComputing(projectName, newSimulationName);
-
-    if (response.status !== "OK") {
-        errorMessageDiv.textContent = `Failed to start computing simulation: ${response.message}`;
-        return;
-    }
-
-    currentComputingSimulationName = newSimulationName;
-    currentActiveWorkerId = response.workerId;
-
-    document.getElementById("computeProgressBar-progress").style.width = "0%";
-
-    document.getElementById("computeProgress").classList.remove("hidden");
-    document.getElementById("stopComputingButton").classList.remove("hidden");
-    document.getElementById("computeNewSimulationButton").classList.add("hidden");
-    document.getElementById("simulationConfigs").classList.add("hidden");
-    
-    progressUpdateInterval = 150;
-    lastProgress = 0;
-    start_t = Date.now();
-    currentProgressTimeout = setTimeout(updateComputingProgress, progressUpdateInterval);
-}
-
-function validateSimulaitonConfigEntrys() {
-    const errorMessageDiv = document.getElementById("simulationMenu-error-message");
-    errorMessageDiv.textContent = ""; //clear prev msgs
-
-    const deltaT_inp = document.getElementById("deltaT");
-    const deltaT = parseFloat(deltaT_inp.value);
-    if (isNaN(deltaT) || deltaT <= 0) {
-        errorMessageDiv.textContent = "Delta time must be a positive non-zero float";
-        return false;
-    }
-
-    const noOfFrames_inp = document.getElementById("noOfFrames");
-    const noOfFrames = parseInt(noOfFrames_inp.value);
-    if (isNaN(noOfFrames) || noOfFrames <= 0) {
-        errorMessageDiv.textContent = "Number of frames must be a positive non-zero integer";
-        return false;
-    }
-
-    const stepsPerFrame_inp = document.getElementById("stepsPerFrame");
-    const stepsPerFrame = parseInt(stepsPerFrame_inp.value);
-    if (isNaN(stepsPerFrame) || stepsPerFrame <= 0) {
-        errorMessageDiv.textContent = "Number of steps per frame must be a positive non-zero integer";
-        return false;
-    }
-
-    return true;
-}
-
-document.getElementById("deltaT").addEventListener("input", validateSimulaitonConfigEntrys);
-document.getElementById("noOfFrames").addEventListener("input", validateSimulaitonConfigEntrys);
-document.getElementById("stepsPerFrame").addEventListener("input", validateSimulaitonConfigEntrys);
-
-document.getElementById("stopComputingButton").addEventListener("pointerdown", stopComputingSimulation);
 
 function handleLeavePage(event) {
     if (unsavedChanges === "high") {
         return "You have unsaved changes. If you leave now, your changes will be lost. Are you sure you want to leave?";
     } 
-    else if (currentActiveWorkerId !== null) {
+    else if (simulationOverlay.currentActiveWorkerId !== null) {
         return "You have a simulating being computed. If you leave now, the current active worker will be orphaned. Are you sure you want to leave?";
     }
 }
@@ -1551,47 +897,63 @@ function handleLeavePage(event) {
 window.onbeforeunload = handleLeavePage;
 
 
-
 document.getElementById("edit-objectName").addEventListener(
     "focus", () => {
         unbindAllKeyControls();
-        document.removeEventListener("keydown", workbenchKeyEvents);
+        document.removeEventListener("keydown", workspaceKeyEvents);
     }
 );
 document.getElementById("edit-objectName").addEventListener(
     "focusout", () => {
         bindAllControls(ge.canvas);
-        document.addEventListener("keydown", workbenchKeyEvents);
+        document.addEventListener("keydown", workspaceKeyEvents);
     }
 );
 for (const element of document.getElementsByClassName("numInpBox")) {
     element.addEventListener(
         "focus", () => {
             unbindAllKeyControls();
-            document.removeEventListener("keydown", workbenchKeyEvents);
+            document.removeEventListener("keydown", workspaceKeyEvents);
         }
     );
     element.addEventListener(
         "focusout", () => {
             bindAllControls(ge.canvas);
-            document.addEventListener("keydown", workbenchKeyEvents);
+            document.addEventListener("keydown", workspaceKeyEvents);
         }
     );
 }
 
+
+function showCameraConfigMenuOverlay() {
+    unbindAllKeyControls();
+    document.removeEventListener("keydown", workspaceKeyEvents);
+}
+
+function hideCameraConfigMenuOverlay() {
+    bindAllControls(ge.canvas);
+
+    document.addEventListener("keydown", workspaceKeyEvents);
+}
 
 
 async function setupWorkbench() {
     const response = await communicator.loginFromSessionStorage();
     if (response.status === "ERR") {
         //console.error("Automatic login failed");
-        location.href = "login.html";
+        const serverQuery = communicator.getServerQuery();
+        location.href = "login.html" + serverQuery;
         return;
     }
 
-    await loadData();
+    loadData();
     configureModelDataToggles();
-    configureCreateObjectEntries();
+
+    document.getElementById("toolsTab").addEventListener("pointerup", () => toggleTab("tools"));
+    document.getElementById("modelsTab").addEventListener("pointerup", () => toggleTab("models"));
+    document.getElementById("cameraTab").addEventListener("pointerup", () => toggleTab("camera"));
+    document.getElementById("shadersTab").addEventListener("pointerup", () => toggleTab("shaders"));
 }
+
 
 setupWorkbench();

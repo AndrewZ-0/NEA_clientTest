@@ -5,6 +5,7 @@ import {
     updateMousePosOverlays, removeMousePosOverlays, 
     updateSelectedOverlay, updateSelectionMovementOverlay
 } from "./overlays.js";
+import { GraphicsEngine } from "../app.js";
 
 
 let moveObjects = false;
@@ -119,22 +120,25 @@ function handleKeyUp(event) {
             break;
         case "p":
             masterRenderer.toggleShaderMode();
+            document.dispatchEvent(new CustomEvent("shaderModeToggled"));
             break;
         case "c":
             if (!event.ctrlKey) {
                 toggleCameraMode();
+                document.dispatchEvent(new CustomEvent("cameraModeToggled"));
                 masterRenderer.camera = camera; //reset camera pointer for master renderer
                 axisRenderer.camera = camera;
                 orientationRenderer.camera = camera;
+
                 camera.forceUpdateCamera(masterRenderer.matricies.view);
-                camera.forceUpdateCamera(axisRenderer.matricies.view);
-                //camera.forceUpdateCamera(orientationRenderer.matricies.view);
             }
             break;
         default:
             break;
     }
 }
+
+
 
 
 let lastX;
@@ -188,10 +192,11 @@ function handleMouseButtonDown(event) {
     }
 }
 
-export function selectObject(selectedObject) {
-    masterRenderer.handleSelection(selectedObject);
+export function selectObject(selectedObject, forceSelection = false) {
+    masterRenderer.handleSelection(selectedObject, forceSelection, selectionMovementAxis);
 
     toggleSelectionMovement(null);
+
     updateSelectedOverlay();
 
     const objSelectedEvent = new CustomEvent("objectSelected", {detail: masterRenderer.objects[selectedObject]});
@@ -237,6 +242,7 @@ export function unbindCameraCallbacks(canvas) {
 export function bindAllControls(canvas) {
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("keyup", handleKeyUp);
+    document.addEventListener("blur", quickReleaseKeys);
 
     bindCameraCallbacks(canvas);
 }
@@ -244,6 +250,7 @@ export function bindAllControls(canvas) {
 export function unbindAllKeyControls() {
     document.removeEventListener("keydown", handleKeyDown);
     document.removeEventListener("keyup", handleKeyUp);
+    document.removeEventListener("blur", quickReleaseKeys);
 }
 
 export function bindVisabilityChange(lambda) {

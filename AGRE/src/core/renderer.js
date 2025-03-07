@@ -5,6 +5,7 @@ import {BasicShader, SkeletonShader, PointsShader, LightingShader} from "./shade
 import * as linearAlgebra from "../utils/linearAlgebra.js";
 import * as spaceTransforms from "../utils/spaceTransforms.js";
 import {axisViewport} from "./axisViewPort.js";
+import {camera} from "./camera.js";
 
 class Renderer {
     constructor() {
@@ -14,7 +15,6 @@ class Renderer {
 
         this.gl;
         this.canvas;
-        this.camera;
         this.objects;
         this.shader;
         this.program;
@@ -22,10 +22,9 @@ class Renderer {
         this.updateFlag = false;
     }
 
-    initialise(gl, canvas, camera, objects) {
+    initialise(gl, canvas, objects) {
         this.gl = gl;
         this.canvas = canvas;
-        this.camera = camera;
         this.objects = objects;
 
         this.program = this.gl.createProgram();
@@ -97,7 +96,7 @@ class Renderer {
         linearAlgebra.identityMat4(this.matricies.world);
         linearAlgebra.lookAt(this.matricies.view, {x: 0, y: 0, z: -8}, linearAlgebra.globalOrigin, linearAlgebra.globalUp);
     
-        this.matricies.proj = this.camera.getProjMat(this.canvas);
+        this.matricies.proj = camera.getProjMat(this.canvas);
     }
 
     setUniforms() {
@@ -150,7 +149,7 @@ class Renderer {
     }
 
     render() {
-        this.updateFlag = this.updateFlag || this.camera.changedSinceLastFrame;
+        this.updateFlag = this.updateFlag || camera.changedSinceLastFrame;
 
         if (this.updateFlag) {
             this.gl.clear(this.gl.DEPTH_BUFFER_BIT | this.gl.COLOR_BUFFER_BIT);
@@ -177,8 +176,8 @@ class AdvancedRenderer extends Renderer {
         this.currentSelection = null;
     }
 
-    initialise(gl, canvas, camera, objects, type = "basic") {
-        super.initialise(gl, canvas, camera, objects);
+    initialise(gl, canvas, objects, type = "basic") {
+        super.initialise(gl, canvas, objects);
 
         switch (type) {
             case "basic":
@@ -255,18 +254,41 @@ class AdvancedRenderer extends Renderer {
     }
 
     toggleShaderMode() {
+        switch (this.shader.name) {
+            case "basic":
+                this.setShaderMode("skeleton");
+                break;
+            case "skeleton":
+                this.setShaderMode("points");
+                break;
+            case "points":
+                this.setShaderMode("lighting");
+                break;
+            case "lighting":
+                this.setShaderMode("basic");
+                break;
+            default:
+                return;
+        }
+    }
+
+    setShaderMode(mode) {
         this.nukeShader();
-        if (this.shader instanceof BasicShader) {
-            this.shader = new SkeletonShader(this.gl);
-        }
-        else if(this.shader instanceof SkeletonShader) {
-            this.shader = new PointsShader(this.gl);
-        }
-        else if(this.shader instanceof PointsShader) {
-            this.shader = new LightingShader(this.gl);
-        }
-        else if(this.shader instanceof LightingShader) {
-            this.shader = new BasicShader(this.gl);
+        switch (mode) {
+            case "basic":
+                this.shader = new BasicShader(this.gl);
+                break;
+            case "skeleton":
+                this.shader = new SkeletonShader(this.gl);
+                break;
+            case "points":
+                this.shader = new PointsShader(this.gl);
+                break;
+            case "lighting":
+                this.shader = new LightingShader(this.gl);
+                break;
+            default:
+                return;
         }
 
         this.initialiseShaderEnvironment();
@@ -315,7 +337,7 @@ class AdvancedRenderer extends Renderer {
         this.objects[i].setMode(this.gl.LINES);
     }
 
-    handleSelection(i) {
+    handleSelection(i, forceSelection, selectionMovementAxis) {
         this.updateFlag = true;
         if (i === null) {
             if (this.currentSelection !== null) {
@@ -324,7 +346,7 @@ class AdvancedRenderer extends Renderer {
             }
             else {
                 this.updateFlag = false;
-                return null; //if nothing had been selected and nothing is selected, then nothing needs to be updated
+                return null; //if nothing is currently selected and nothing is selected, then nothing needs to be updated
             }
         }
         else {
@@ -336,8 +358,14 @@ class AdvancedRenderer extends Renderer {
                 if (this.currentSelection !== null && this.currentSelection !== i) {
                     this.deselectObject(this.currentSelection);
                 }
-                this.selectObject(i);
-                this.currentSelection = i;
+
+                if (selectionMovementAxis === null || forceSelection) {
+                    this.selectObject(i);
+                    this.currentSelection = i;
+                }
+                else {
+                    this.currentSelection = null; 
+                }
             }
         } 
 
@@ -346,59 +374,58 @@ class AdvancedRenderer extends Renderer {
     }
 
     moveSelectedObjectAlong(axis, pointerX, pointerY) {
-        if (axisViewport.activeAxis !== null) {
-            const object = this.objects[this.currentSelection];
+        if (axisViewport.activeAxis === null){
+            return
+        }
 
-            const {a: A, b: B} = axisViewport.activeAxis.getVertecies();
-            const O = this.camera.coords;
-            const OA = linearAlgebra.subVec3(A, O);
-            const AB = linearAlgebra.subVec3(B, A);
+        const object = this.objects[this.currentSelection];
 
-            const n = this.camera.front;
-            const a = linearAlgebra.normaliseVec3(AB);
-            const a_proj = linearAlgebra.normaliseVec3(linearAlgebra.subVec3(a, linearAlgebra.scaleVec3(n, linearAlgebra.dotVec3(a, n))));
+        const {a: A, b: B} = axisViewport.activeAxis.getVertecies();
+        const O = camera.coords;
+        const OA = linearAlgebra.subVec3(A, O);
+        const AB = linearAlgebra.subVec3(B, A);
 
-            const {x, y} = spaceTransforms.getNormalisedDeviceCoords(masterRenderer.canvas, pointerX, pointerY);
-            const c = spaceTransforms.getRayFromNDC(x, y, masterRenderer.matricies.proj, masterRenderer.matricies.view);
+        const n = camera.front;
+        const a = linearAlgebra.normaliseVec3(AB);
+        const a_proj = linearAlgebra.normaliseVec3(linearAlgebra.subVec3(a, linearAlgebra.scaleVec3(n, linearAlgebra.dotVec3(a, n))));
 
-            const mu = linearAlgebra.dotVec3(OA, n) / (linearAlgebra.dotVec3(c, n)); //mu for poi between c and plane (A)
-            const P = linearAlgebra.addVec3(O, linearAlgebra.scaleVec3(c, mu));
+        const {x, y} = spaceTransforms.getNormalisedDeviceCoords(masterRenderer.canvas, pointerX, pointerY);
+        const c = spaceTransforms.getRayFromNDC(x, y, masterRenderer.matricies.proj, masterRenderer.matricies.view);
 
-            const AP = linearAlgebra.subVec3(P, A);
+        const mu = linearAlgebra.dotVec3(OA, n) * linearAlgebra.dotVec3(c, n); //mu for poi between c and plane (A)
+        const P = linearAlgebra.addVec3(O, linearAlgebra.scaleVec3(c, mu));
 
-            const OP_prime = linearAlgebra.addVec3(OA, linearAlgebra.scaleVec3(a_proj, linearAlgebra.dotVec3(AP, a_proj)));
+        const AP = linearAlgebra.subVec3(P, A);
 
-            const norm_OP_prime = linearAlgebra.normaliseVec3(OP_prime);
+        const OP_prime = linearAlgebra.addVec3(OA, linearAlgebra.scaleVec3(a_proj, linearAlgebra.dotVec3(AP, a_proj)));
 
-            let s;
-            if (axis === "x") {
-                s = (OA.x * a.z - OA.z * a.x) / (norm_OP_prime.x * a.z - norm_OP_prime.z * a.x);
-            }
-            else if (axis === "z") {
-                s = (OA.x * a.z - OA.z * a.x) / (norm_OP_prime.x * a.z - norm_OP_prime.z * a.x);
-            }
-            else if (axis === "y") {
-                s = (OA.y * a.z - OA.z * a.y) / (norm_OP_prime.y * a.z - norm_OP_prime.z * a.y);
-            }
+        const norm_OP_prime = linearAlgebra.normaliseVec3(OP_prime);
 
-
-            if (!isNaN(s)) {
-                const p_doublePrime = linearAlgebra.addVec3(O, linearAlgebra.scaleVec3(norm_OP_prime, s));
-        
-                object[axis] = p_doublePrime[axis];
+        let s;
+        if (axis === "x") {
+            s = (OA.x * a.y - OA.y * a.x) / (norm_OP_prime.x * a.y - norm_OP_prime.y * a.x);
+        }
+        else if (axis === "z") {
+            s = (OA.z * a.y - OA.y * a.z) / (norm_OP_prime.z * a.y - norm_OP_prime.y * a.z);
+        }
+        else if (axis === "y") {
+            s = (OA.y * a.z - OA.z * a.y) / (norm_OP_prime.y * a.z - norm_OP_prime.z * a.y);
+        }
 
 
-                //console.log((OA.x * a.z - OA.z * a.x) / (norm_OP_prime.x * a.z - norm_OP_prime.z * a.x), (OA.x * a.z - OA.y * a.x) / (norm_OP_prime.x * a.y - norm_OP_prime.y * a.x), (OA.y * a.z - OA.z * a.y) / (norm_OP_prime.y * a.z - norm_OP_prime.z * a.y));
+        if (!isNaN(s)) {
+            const p_doublePrime = linearAlgebra.addVec3(O, linearAlgebra.scaleVec3(norm_OP_prime, s));
+    
+            object[axis] = p_doublePrime[axis];
 
-                this.updateFlag = true;
-                this.render();
-            }
+            //console.log(OP_prime);
+            //console.log((OA.x * a.z - OA.z * a.x) / (norm_OP_prime.x * a.z - norm_OP_prime.z * a.x), (OA.x * a.z - OA.y * a.x) / (norm_OP_prime.x * a.y - norm_OP_prime.y * a.x), (OA.y * a.z - OA.z * a.y) / (norm_OP_prime.y * a.z - norm_OP_prime.z * a.y));
+
+            this.updateFlag = true;
+            this.render();
         }
     }
     
-
-        
-
     renderSelected() {
         this.frameObjectSetUp(this.objects[this.currentSelection], this.buffers[this.currentSelection]);
 
@@ -419,7 +446,7 @@ class AdvancedRenderer extends Renderer {
     }
 
     render() {
-        this.updateFlag = this.updateFlag || this.camera.changedSinceLastFrame;
+        this.updateFlag = this.updateFlag || camera.changedSinceLastFrame;
 
         if (this.updateFlag) {
             this.gl.clear(this.gl.DEPTH_BUFFER_BIT | this.gl.COLOR_BUFFER_BIT);
@@ -444,7 +471,7 @@ class AdvancedRenderer extends Renderer {
             this.updateFlag = false;
         }
 
-        if (this.camera.changedSinceLastFrame) {
+        if (camera.changedSinceLastFrame) {
             const renderUpdateEvent = new CustomEvent("cameraUpdated");
             document.dispatchEvent(renderUpdateEvent);
         }
@@ -457,8 +484,8 @@ class BasicRenderer extends Renderer {
         super();
     }
 
-    initialise(gl, canvas, camera, shader, objects) {
-        super.initialise(gl, canvas, camera, objects);
+    initialise(gl, canvas, shader, objects) {
+        super.initialise(gl, canvas, objects);
 
         this.shader = shader;
 

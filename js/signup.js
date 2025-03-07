@@ -1,5 +1,35 @@
 import {communicator} from "./communicator.js";
 
+
+function returnToMainMenu() {
+    const serverQuery = communicator.getServerQuery();
+    window.location.href = "mainMenu.html" + serverQuery;
+}
+document.getElementById("titleBarReturnButton").addEventListener("pointerdown", returnToMainMenu);
+
+function toLogin() {
+    const serverQuery = communicator.getServerQuery();
+    window.location.href = "login.html" + serverQuery;
+}
+document.getElementById("toLoginLink").addEventListener("pointerdown", toLogin);
+
+
+function togglePasswordVisibility() {
+    const passwordField1 = document.getElementById("password1");
+    const passwordField2 = document.getElementById("password2");
+    const showPasswordCheckbox = document.getElementById("show-password");
+    if (showPasswordCheckbox.checked) {
+        passwordField1.type = "text";
+        passwordField2.type = "text";
+    } 
+    else {
+        passwordField1.type = "password";
+        passwordField2.type = "password";
+    }
+}
+document.getElementById("show-password").onclick = togglePasswordVisibility;
+
+
 async function handleSignup(event) {
     event.preventDefault();
 
@@ -46,10 +76,13 @@ async function handleSignup(event) {
         return; 
     }
 
+    console.log("hi")
+
     const signupResponse = await communicator.signup(username, password1, email);
     if (signupResponse.status === "OK") {
         await communicator.logout();
-        window.location.href = "login.html";
+        const serverQuery = communicator.getServerQuery();
+        window.location.href = "login.html" + serverQuery;
     } 
     else {
         //console.error("Signup failed:", signupResponse.message);

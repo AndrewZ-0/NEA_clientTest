@@ -6,7 +6,8 @@ async function logout(event) {
         await communicator.logout();
 
         sessionStorage.removeItem("certificate");
-        location.href = "mainMenu.html";
+        const serverQuery = communicator.getServerQuery();
+        location.href = "mainMenu.html" + serverQuery;
     }
 }
 
@@ -231,8 +232,54 @@ function handleSelectProjectCard(event) {
 }
 
 async function openProjectWorkbench(projectName) {
-    await communicator.updateAccessProjectTime(projectName);
-    window.location.href = `projectWorkbench.html?project=${projectName}`;
+    communicator.updateAccessProjectTime(projectName);
+    let serverQuery = communicator.getServerQuery();
+    if (serverQuery !== "") {
+        serverQuery += "&";
+    }
+    else {
+        serverQuery = "?";
+    }
+    window.location.href = "projectWorkbench.html" + serverQuery + `project=${projectName}`;
+}
+
+async function loadProjectData(projectCard, projectName) {
+    const projectResponse = await communicator.getProjectData(projectName); 
+    
+    if (projectResponse.status !== "OK") {
+        console.error("Failed to load project data:", projectResponse.message);
+        return;
+    }
+
+    const projectDetails = document.createElement("div");
+    projectDetails.className = "project-details";
+
+    const projectNameLabel = document.createElement("label");
+    projectNameLabel.className = "project-name";
+    projectNameLabel.textContent = projectName;
+
+    const lastOpenedLabel = document.createElement("label");
+    lastOpenedLabel.textContent = `Last opened ${projectResponse.data.lastAccessed}`;
+
+    projectDetails.appendChild(projectNameLabel);
+    projectDetails.appendChild(lastOpenedLabel);
+
+    projectCard.appendChild(projectDetails);
+}
+
+async function loadProjectImages(projectCard, projectName) {
+    const imgResponse = await communicator.getProjectScreenshot(projectName);
+
+    if (imgResponse.status !== "OK") {
+        console.error("Failed to load project screenshot:", imgResponse.message);
+        return;
+    }
+
+    const img = document.createElement("img");
+    img.src = imgResponse.image;
+    img.alt = "Project Screenshot";
+
+    projectCard.prepend(img);
 }
 
 async function loadProjectCards() {
@@ -243,60 +290,22 @@ async function loadProjectCards() {
         return;
     }
 
-    const projectNames = response.data;
+    const projectNames = response.data; //project names already sorted by sql select query
 
     const projectCardsContainer = document.getElementById("projectCardsContainer");
     const newProjectCard = document.querySelector(".new-project-card"); //save for to put at the end
     
     projectCardsContainer.replaceChildren(); //clear to reload all cards
 
-    let projects = {};
-
-    for (let i = 0; i < projectNames.length; i++) {
-        const projectResponse = await communicator.getProjectData(projectNames[i]); 
-        
-        if (projectResponse.status !== "OK") {
-            console.error("Failed to load project data:", projectResponse.message);
-            return;
-        }
-        
-        projects[projectNames[i]] = projectResponse.data; //proj names alredy sorted in last accessed order
-    }
-
     for (const projectName of projectNames) {
-        const project = projects[projectName];
-
         const projectCard = document.createElement("div");
         projectCard.className = "project-card";
         projectCard.tabIndex = 0;
+        projectCard.title = `"${projectName}" Project Card: click to select, click again to open, escape key to deselect, arrow keys to navigate.`;
         projectCard.addEventListener("pointerdown", handleSelectProjectCard);
 
-        const imgResponse = await communicator.getProjectScreenshot(projectName);
-
-        if (imgResponse.status !== "OK") {
-            console.error("Failed to load project screenshot:", imgResponse.message);
-            return;
-        }
-
-        const img = document.createElement("img");
-        img.src = imgResponse.image;
-        img.alt = "Project Screenshot";
-
-        const projectDetails = document.createElement("div");
-        projectDetails.className = "project-details";
-
-        const projectNameLabel = document.createElement("label");
-        projectNameLabel.className = "project-name";
-        projectNameLabel.textContent = projectName;
-
-        const lastOpenedLabel = document.createElement("label");
-        lastOpenedLabel.textContent = `Last opened ${project.lastAccessed}`;
-
-        projectDetails.appendChild(projectNameLabel);
-        projectDetails.appendChild(lastOpenedLabel);
-
-        projectCard.appendChild(img);
-        projectCard.appendChild(projectDetails);
+        loadProjectData(projectCard, projectName);
+        loadProjectImages(projectCard, projectName);
 
         projectCardsContainer.appendChild(projectCard);
     }
@@ -309,7 +318,8 @@ async function setupDashboard() {
     const response = await communicator.loginFromSessionStorage();
     if (response.status === "ERR") {
         //console.error("Automatic login failed");
-        location.href = "login.html";
+        const serverQuery = communicator.getServerQuery();
+        location.href = "login.html" + serverQuery;
         return;
     }
 

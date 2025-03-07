@@ -1,6 +1,12 @@
 class Communicator {
     constructor() {
-        this.ip = "https://phimo.ddns.net:1234";
+        this.scheme = "https://"
+        this.serverDomainName = "phimo.ddns.net:1234"; //default
+
+        const serverDomainName = this.getServerDomainNameFromUrl();
+        if (serverDomainName !== null) {
+            this.serverDomainName = serverDomainName;
+        }
 
         //changed the way the communicator handles certificates. Communicator now stores certificate locally.
         //communicator relys on session storage to maintain cert across pages
@@ -71,7 +77,7 @@ class Communicator {
 
     async connect() {
         try {
-            const response = await fetch(`${this.ip}/connect`);
+            const response = await fetch(`${this.scheme + this.serverDomainName}/connect`);
             if (response.ok) {
                 //console.log("Connected to server");
                 return true;
@@ -88,11 +94,12 @@ class Communicator {
     }
 
     async submitData(typeOfFetch, data, addCertificate = false) {
+        /*
         const connected = await this.connect();
 
         if (!connected) {
             return {status: "ERR", message: "Failed to connect to server"};
-        }
+        }*/
 
         let headers = {
             "Content-Type": "application/json"
@@ -102,7 +109,7 @@ class Communicator {
             headers.certificate = this.certificate;
         }
 
-        const response = await fetch(`${this.ip}/${typeOfFetch}`, {
+        const response = await fetch(`${this.scheme + this.serverDomainName}/${typeOfFetch}`, {
             method: "POST",
             headers: headers,
             credentials: "include", //different system to cert
@@ -113,11 +120,13 @@ class Communicator {
     }
 
     async fetchData(typeOfFetch, data, addCertificate = false) {
+        /*
         const connected = await this.connect();
 
         if (!connected) {
             return {status: "ERR", message: "Failed to connect to server"};
         }
+        */
 
         let headers = {
             "Content-Type": "application/json",
@@ -128,7 +137,7 @@ class Communicator {
             headers.certificate = this.certificate;
         }
         
-        const response = await fetch(`${this.ip}/${typeOfFetch}`, {
+        const response = await fetch(`${this.scheme + this.serverDomainName}/${typeOfFetch}`, {
             method: "GET",
             headers: headers,
             credentials: "include"  //different system to cert
@@ -209,13 +218,18 @@ class Communicator {
         return await this.submitData("update_projectData", {projectName, simConfig, settingsData, screenshot}, true);
     }
 
+    async updateSimulationSettings(projectName, simulationName, settingsData) {
+        return await this.submitData("update_simulationSettings", {projectName, simulationName, settingsData}, true)
+    }
+
     //can't use a standardised fetch request since data is not a json
     async getProjectScreenshot(projectName) {
+        /*
         const connected = await this.connect();
 
         if (!connected) {
             return {status: "ERR", message: "Failed to connect to server"};
-        }
+        }*/
 
         const headers = {
             "Content-Type": "application/json",
@@ -223,7 +237,7 @@ class Communicator {
             projectName
         };
         
-        const response = await fetch(`${this.ip}/get_projectScreenshot`, {
+        const response = await fetch(`${this.scheme + this.serverDomainName}/get_projectScreenshot`, {
             method: "GET",
             headers: headers,
             credentials: "include"  //different system to cert
@@ -262,19 +276,20 @@ class Communicator {
     }
 
     async getSimulationData(projectName, simulationName) {
-        return await this.fetchData("get_simulationData", {projectName, simulationName}, true)
+        return await this.fetchData("get_simulationData", {projectName, simulationName}, true);
     }
 
     async listSolvers() {
-        return await this.fetchData("list_solvers", {}, true)
+        return await this.fetchData("list_solvers", {}, true);
     }
 
     async streamSimulationFramesFile(projectName, simulationName) {
+        /*
         const connected = await this.connect();
 
         if (!connected) {
             return {status: "ERR", message: "Failed to connect to server"};
-        }
+        }*/
 
         const headers = {
             "Content-Type": "application/json",
@@ -282,7 +297,7 @@ class Communicator {
             projectName, simulationName
         };
         
-        const response = await fetch(`${this.ip}/stream_simulationFramesFile`, {
+        const response = await fetch(`${this.scheme + this.serverDomainName}/stream_simulationFramesFile`, {
             method: "GET",
             headers: headers,
             credentials: "include"  //different system to cert
@@ -315,6 +330,20 @@ class Communicator {
 
     getSimNameFromUrl() {
         return new URLSearchParams(window.location.search).get("simulation");
+    }
+
+    getServerDomainNameFromUrl() {
+        return new URLSearchParams(window.location.search).get("server");
+    }
+
+    getServerQuery() {
+        const serverDomainName = communicator.getServerDomainNameFromUrl();
+        let serverQuery = "";
+        if (serverDomainName != null) {
+            serverQuery = `?server=${serverDomainName}`;
+        }
+
+        return serverQuery;
     }
 }
 

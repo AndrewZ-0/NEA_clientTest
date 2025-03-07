@@ -1,4 +1,8 @@
-import {camera, cameraMode} from "./camera.js";
+import {
+    camera, cameraMode, 
+    cameraMovementSpeed, draggingSensitivity, 
+    near, far, fov
+} from "./camera.js";
 import {masterRenderer} from "./renderer.js";
 import * as linearAlgebra from "../utils/linearAlgebra.js";
 import {clock} from "./clock.js";
@@ -26,37 +30,46 @@ export function updateShaderOverlays() {
 
 export function updateCameraModeOverlay() {
     document.getElementById("cameraMode-overlay").innerText = `CameraMode: ${cameraMode}`;
-    if (cameraMode === "Y-Polar") {
-        document.getElementById("x-overlay").innerText = "";
-        document.getElementById("y-overlay").innerText = "";
-        document.getElementById("z-overlay").innerText = "";
-        document.getElementById("pitch-overlay").innerText = "";
-        document.getElementById("yaw-overlay").innerText = "";
-        document.getElementById("roll-overlay").innerText = "";
-    }
-    else {
-        document.getElementById("r-overlay").innerText = "";
-        document.getElementById("altitude-overlay").innerText = "";
-        document.getElementById("azimuth-overlay").innerText = "";
-    }
+}
+
+export function emptyAllCameraOverlays() {
+    document.getElementById("x-overlay").innerText = "";
+    document.getElementById("y-overlay").innerText = "";
+    document.getElementById("z-overlay").innerText = "";
+    document.getElementById("pitch-overlay").innerText = "";
+    document.getElementById("yaw-overlay").innerText = "";
+    document.getElementById("roll-overlay").innerText = "";
+    document.getElementById("r-overlay").innerText = "";
+    document.getElementById("altitude-overlay").innerText = "";
+    document.getElementById("azimuth-overlay").innerText = "";
+}
+
+export function updateSensitivityOverlays() {
+    document.getElementById("cameraMovementSpeed-overlay").innerText = `Camera Movement Speed: ${cameraMovementSpeed}`;
+    document.getElementById("draggingSensitivity-overlay").innerText = `Dragging Sensitivity: ${draggingSensitivity}`;
 }
 
 export function updateCameraPerspectiveOverlays() {
-    document.getElementById("fov-overlay").innerText = `FOV: ${camera.fov}`;
-    document.getElementById("near-overlay").innerText = `Near: ${camera.near}`;
-    document.getElementById("far-overlay").innerText = `Far: ${camera.far}`;
+    document.getElementById("fov-overlay").innerText = `FOV: ${fov}`;
+    document.getElementById("near-overlay").innerText = `Near: ${near}`;
+    document.getElementById("far-overlay").innerText = `Far: ${far}`;
 }
 
-export function updateCameraCartesianCoordsOverlays() {
+export function updateCartesianCameraCoordsOverlays() {
     document.getElementById("x-overlay").innerText = `Camera X: ${camera.coords.x.toFixed(3)}`; 
     document.getElementById("y-overlay").innerText = `Camera Y: ${camera.coords.y.toFixed(3)}`; 
     document.getElementById("z-overlay").innerText = `Camera Z: ${camera.coords.z.toFixed(3)}`; 
 }
 
-export function updateCameraPolarCoordsOverlays() {
+export function updatePolarCameraPoseOverlays() {
     document.getElementById("r-overlay").innerText = `R: ${camera.r.toFixed(3)}`; 
     document.getElementById("altitude-overlay").innerText = `Altitude: ${linearAlgebra.toDegree(camera.alt).toFixed(3)}`; 
     document.getElementById("azimuth-overlay").innerText = `Azimuth: ${linearAlgebra.toDegree(camera.azi).toFixed(3)}`; 
+}
+
+export function updatePolarCartesianCameraOrientationOverlays() {
+    document.getElementById("altitude-overlay").innerText = `Orient Altitude: ${linearAlgebra.toDegree(camera.orientation.alt).toFixed(3)}`; 
+    document.getElementById("azimuth-overlay").innerText = `Orient Azimuth: ${linearAlgebra.toDegree(camera.orientation.azi).toFixed(3)}`; 
 }
 
 export function updateCameraEulerAnglesOverlays() {
